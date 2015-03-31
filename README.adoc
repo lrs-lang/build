@@ -1,0 +1,51 @@
+= lrs_build
+
+The build system of linux-rs.
+
+== Why another build system
+
+Linux-rs is organized as many small crates which compile into many small object
+files. Cargo cannot efficiently deal with this. If we use Cargo, then every
+object needs its own `Cargo.toml` file with lots of redundant information.
+
+The reason we split linux-rs up into many small crates is that we want the
+compile times to be bearable. Consider the following case:
+
+We're working on `src/file` and notice that we have to change something in
+`src/core`. Then we continue working on `src/file` and compile it with
+`cargo build`. Once we're done working on `src/file`, we go to `src/linux` and
+run `cargo build` there. But then Cargo will recompile `src/core` and `src/file`
+even though we've already compiled both. That's because Cargo will store the
+results of the compilation in `src/file/target/../deps` and it doesn't know
+about that when we're compiling in `src/linux`.
+
+On the other hand, lrs_build stores everything in the top-level `obj` directory.
+
+== How to
+
+lrs_build can be compiled by running `rustc main.rs`.
+
+When you run `lrs_build` you have to be in the directory that contains the
+`LRSBuild` file or any subdirectory. By default, `lrs_build` will compile all
+objects, including the final `linux` object. However, if you are in one of the
+object subdirectories, e.g. `src/file`, then it will only compile the objects
+that are necessary to compile `src/file`.
+
+== `LRSBuild` syntax
+
+The `LRSBuild` file has the following syntax:
+
+----
+obj <obj_name> [dependency_name]*
+----
+
+For example:
+
+----
+obj core
+obj clock core
+----
+
+This means that `core` has no dependencies and `clock` has only the `core`
+dependency. The dependencies should be exactly the dependencies that are
+declared via `extern crate` in the `lib.rs` file.
