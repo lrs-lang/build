@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 #![crate_type = "bin"]
 #![crate_name = "lrs_build"]
 #![feature(std_misc, fs_time, os, libc)]
@@ -6,7 +10,7 @@
 extern crate libc;
 
 use std::path::{AsPath};
-use std::{env, mem, os, thread};
+use std::{env, mem, os, thread, cmp};
 use std::io::{self, BufReader, BufRead, Write};
 use std::rc::{Rc};
 use std::cell::{RefCell};
@@ -44,6 +48,7 @@ enum BuildStatus {
 struct Obj {
     name: String,
     needs_rebuild: Option<bool>,
+    obj_modified: Option<u64>,
     build_status: BuildStatus,
     deps: Vec<Rc<RefCell<Obj>>>,
 }
@@ -53,6 +58,7 @@ impl Obj {
         Obj {
             name: n,
             needs_rebuild: None,
+            obj_modified: None,
             build_status: BuildStatus::Pending,
             deps: vec!(),
         }
@@ -63,9 +69,13 @@ impl Obj {
             return self.needs_rebuild.unwrap();
         }
 
+        let mut last_dep_built = 0;
         for dep in &self.deps {
-            if dep.borrow_mut().check_needs_rebuild() {
+            let mut dep = dep.borrow_mut();
+            if dep.check_needs_rebuild() {
                 self.needs_rebuild = Some(true);
+            } else {
+                last_dep_built = cmp::max(last_dep_built, dep.obj_modified.unwrap());
             }
         }
 
@@ -87,6 +97,11 @@ impl Obj {
                 return true;
             },
         };
+
+        if obj_modified < last_dep_built {
+            self.needs_rebuild = Some(true);
+            return true;
+        }
 
         // load files
         let mut dep_path = "obj".as_path().to_path_buf();
@@ -127,6 +142,7 @@ impl Obj {
         }
 
         self.needs_rebuild = Some(false);
+        self.obj_modified = Some(obj_modified);
         false
     }
 }
