@@ -3,73 +3,93 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 #![crate_type = "bin"]
-#![crate_name = "lrs_build"]
-#![feature(std_misc, fs_time, os, libc)]
-#![allow(deprecated)]
+#![crate_name = "new_lrs_build"]
+#![feature(plugin, no_std)]
+#![plugin(linux_core_plugin)]
+#![no_std]
 
-extern crate libc;
+#[macro_use] extern crate linux;
+mod core { pub use linux::core::*; }
+#[allow(unused_imports)] #[prelude_import] use linux::prelude::*;
 
-use std::path::{AsPath};
-use std::{env, mem, os, thread, cmp};
-use std::io::{self, BufReader, BufRead, Write};
-use std::rc::{Rc};
-use std::cell::{RefCell};
-use std::fs::{self, File};
-use std::process::{Command};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use linux::file::{self, File};
+use linux::time::{self, Time};
+use linux::rc::{Arc};
+use linux::sync::{Queue, Mutex};
+use linux::{env, sys, mem, cmp, thread};
+use linux::process::{self, WAIT_EXITED, ChildStatus};
+use linux::vec::{SVec};
+use linux::string::{
+    NoNullString, SNoNullString, SByteString, CPtrPtr, AsByteStr, ByteString, CStr,
+};
+use linux::io::{BufReader, BufRead};
+use linux::iter::{IteratorExt};
 
 /// Print an error to stderr and exit.
-macro_rules! err {
-    ($fmt:expr) => { err!(concat!($fmt, "{}"), "") };
+macro_rules! errexit {
+    ($fmt:expr) => { errexit!(concat!($fmt, "{}"), "") };
     ($fmt:expr, $($arg:tt)*) => {{
-        let mut stderr = io::stderr();
-        let _ = writeln!(&mut stderr, $fmt, $($arg)*);
-        unsafe { libc::_exit(1); }
+        errln!($fmt, $($arg)*);
+        process::exit(1);
+    }};
+}
+
+macro_rules! tryerr {
+    ($val:expr, $fmt:expr) => { tryerr!($val, concat!($fmt, "{}"), "") };
+    ($val:expr, $fmt:expr, $($arg:tt)*) => {{
+        match $val {
+            Ok(x) => x,
+            Err(e) => errexit!(concat!("lrs_build: ", $fmt, ": ({:?}))"), $($arg)*, e),
+        }
     }};
 }
 
 /// Object containing the state of the build process.
-#[derive(Debug)]
 struct Build {
-    start: Option<String>,
-    objs: Vec<Rc<RefCell<Obj>>>,
+    start: Option<SNoNullString>,
+    objs: SVec<Arc<Mutex<Obj>>>,
 }
 
 /// Status of an obj that needs rebuilding.
-#[derive(Debug, PartialEq)]
+#[derive(Eq)]
 enum BuildStatus {
     /// Build has not yet started
     Pending,
+
     /// Building right now
     Building,
+
     /// Done building
     Built,
 }
 
 /// A single object in our build tree.
-#[derive(Debug)]
 struct Obj {
     /// Name of the object, e.g., "core" or "file".
-    name: String,
+    name: SByteString,
+
     /// Whether the object need rebuilding.
     needs_rebuild: Option<bool>,
+
     /// If needs_rebuild is false, then this contains the date the object was built.
-    obj_modified: Option<u64>,
+    obj_modified: Option<Time>,
+
     /// If needs_rebuild is true, then this contains the status of the built.
     build_status: BuildStatus,
+
     /// The dependencies of this object.
-    deps: Vec<Rc<RefCell<Obj>>>,
+    deps: SVec<Arc<Mutex<Obj>>>,
 }
 
 impl Obj {
     /// Creates a new, empty object from the given name.
-    fn from_name(n: String) -> Obj {
+    fn from_name(n: &[u8]) -> Obj {
         Obj {
-            name: n,
+            name: ByteString::from_vec(n.to_owned().unwrap()),
             needs_rebuild: None,
             obj_modified: None,
             build_status: BuildStatus::Pending,
-            deps: vec!(),
+            deps: Vec::new(),
         }
     }
 
@@ -85,9 +105,9 @@ impl Obj {
         }
 
         // Store the last time any of the objects dependencies was built.
-        let mut last_dep_built = 0;
+        let mut last_dep_built = Time::seconds(0);
         for dep in &self.deps {
-            let mut dep = dep.borrow_mut();
+            let mut dep = dep.lock();
             if dep.check_needs_rebuild() {
                 // If a dependency has to be rebuilt, then this object also has to be
                 // rebuilt. We don't return here because of the guarantee in the function
@@ -108,15 +128,15 @@ impl Obj {
         // Generate the full name of the object. If the name is "linux", then it refers to
         // the final crate "linux" which is already its full name. Otherwise, e.g. if it's
         // "core" or "file", the full name has the "linux_" prefix.
-        let full_name = match &self.name[..] {
-            "linux" => "linux".to_string(),
+        let full_name: ByteString = match self.name.as_ref() {
+            b"linux" => "linux".as_byte_str().to_owned().unwrap(),
             _ => format!("linux_{}", self.name),
         };
-        let obj_path = format!("obj/lib{}.rlib", full_name);
+        let obj_path: ByteString = format!("obj/lib{}.rlib", full_name);
 
         // Check when the compiled object was last modified.
-        let obj_modified = match fs::metadata(&obj_path) {
-            Ok(m) => m.modified(),
+        let obj_modified = match file::info(&obj_path) {
+            Ok(m) => m.last_modification(),
             _ => {
                 // If the object doesn't exist then we definitely have to rebuilt.
                 self.needs_rebuild = Some(true);
@@ -133,10 +153,10 @@ impl Obj {
 
         // Load the ".d" file generated by rustc which contains the files that were used
         // to compile this object, e.g, "lib.rs".
-        let mut dep_path = "obj".as_path().to_path_buf();
-        dep_path.push(&format!("{}.d", full_name));
-        let deps_file = match File::open(&dep_path) {
-            Ok(f) => BufReader::new(f),
+        let mut dep_buf = [0; 4096];
+        let dep_path: ByteString = format!("obj/{}.d", full_name);
+        let mut deps_file = match File::open_read(&dep_path) {
+            Ok(f) => BufReader::new(f, &mut dep_buf),
             _ => {
                 // For some reason the ".rlib" exists but the ".d" doesn't exist. In this
                 // case we just rebuild the object.
@@ -144,31 +164,34 @@ impl Obj {
                 return true;
             },
         };
+
         // The line that starts with "obj/libfull_name.rlib: " contains our dependencies.
-        let mut files: Option<Vec<String>> = None;
-        for line in deps_file.lines() {
-            let line = line.unwrap();
-            if line.starts_with(&obj_path) {
-                let line = &line[obj_path.len()+2..];
-                files = Some(line.split(' ').map(|w| w.to_string()).collect());
+        let mut line: Vec<_> = Vec::new();
+        while deps_file.copy_until(&mut line, b'\n').unwrap() > 0 {
+            if line.last() == Some(&b'\n') {
+                line.pop();
+            }
+            if line.starts_with(obj_path.as_ref()) {
                 break;
             }
+            line.truncate(0);
         }
-        let files = match files {
-            Some(f) => f,
-            _ => {
-                // For some reason the file didn't contain the correct line. We just
-                // rebuild.
-                self.needs_rebuild = Some(true);
-                return true;
-            },
+
+        let files = if line.starts_with(obj_path.as_ref()) {
+            let line = &line[obj_path.len()+2..];
+            line.split(|&b| b == b' ')
+        } else {
+            // For some reason the file didn't contain the correct line. We just
+            // rebuild.
+            self.needs_rebuild = Some(true);
+            return true;
         };
 
         // Check the modification time of all the files that were used to build this
         // object.
         for file in files {
-            match fs::metadata(&file) {
-                Ok(ref m) if m.modified() <= obj_modified => { },
+            match file::info(file) {
+                Ok(ref m) if m.last_modification() <= obj_modified => { },
                 _ => {
                     self.needs_rebuild = Some(true);
                     return true;
@@ -187,11 +210,11 @@ impl Obj {
 /// Gets the next sub-target of this object that can be built, or `Err(false)` if there
 /// are no more subtargets to be built, or `Err(true)` if there are more subtargets to be
 /// built but they cannot be built right now.
-fn next_target(obj: &Rc<RefCell<Obj>>) -> Result<Rc<RefCell<Obj>>, bool> {
+fn next_target(obj: &Arc<Mutex<Obj>>) -> Result<Arc<Mutex<Obj>>, bool> {
     let mut can_build = true;
 
     {
-        let obj = obj.borrow();
+        let obj = obj.lock();
 
         // If this object doesn't need rebuilding, then none of the dependencies need
         // rebuilding either. If this object has already been built, then all dependencies
@@ -220,7 +243,7 @@ fn next_target(obj: &Rc<RefCell<Obj>>) -> Result<Rc<RefCell<Obj>>, bool> {
     }
 
     match can_build {
-        true => Ok(obj.clone()),
+        true => Ok(obj.new_ref()),
         _ => Err(true),
     }
 }
@@ -229,57 +252,79 @@ fn next_target(obj: &Rc<RefCell<Obj>>) -> Result<Rc<RefCell<Obj>>, bool> {
 ///
 /// The directory layout is `conf_dir/src/file` so the second directory after it can be,
 /// e.g., "file" or "core".
-fn find_conf() -> (String, Option<String>) {
-    let mut cwd = env::current_dir().unwrap();
+fn find_conf() -> (SNoNullString, Option<SNoNullString>) {
+    let mut path = NoNullString::new();
+    tryerr!(env::cwd(&mut path), "Couldn't get cwd");
+
     let mut last = None;
     let mut second_to_last = None;
     loop {
-        cwd.push("LRSBuild");
-        let exists = fs::metadata(&cwd).is_ok();
-        cwd.pop();
+        path.push_file("LRSBuild");
+        let exists = file::exists(&path) == Ok(true);
+        path.pop_file();
         if exists {
-            return (cwd.to_str().unwrap().to_string(), second_to_last);
+            return (path, second_to_last);
+        }
+        if path.len() == 0 {
+            errexit!("Cannot find LRSBuild");
         }
         mem::swap(&mut last, &mut second_to_last);
-        last = cwd.file_name().map(|f| f.to_str().unwrap().to_string());
-        if last.is_none() {
-            err!("Cannot find LRSBuild");
-        }
-        cwd.pop();
+        last = Some(path.pop_file().to_owned().unwrap());
     }
 }
 
-/// Parse the contents of LRSBuild
-fn parse(build: &mut Build) {
-    let mut preobjs: Vec<(String, Vec<String>)> = vec!();
+/// Parses the contents of LRSBuild.
+fn parse_config(build: &mut Build) {
+    let file = tryerr!(File::open_read("LRSBuild"), "Error opening LRSBuild");
 
-    for line in BufReader::new(fs::File::open("LRSBuild").unwrap()).lines() {
-        let line = line.unwrap();
-        let words: Vec<&str> = line.trim().split(' ').map(|w| w.trim())
-                                   .filter(|w| w.len() > 0).collect();
-        if words.len() > 0 {
-            match words[0] {
-                "obj" => {
-                    assert!(words.len() > 1);
-                    preobjs.push((words[1].to_string(),
-                                  words[2..].iter().map(|w| w.to_string()).collect()));
-                },
-                _ => err!("expected predicate"),
+    let mut buf = [0; 4096];
+    let mut reader = BufReader::new(file, &mut buf);
+    let mut line: Vec<_> = Vec::new();
+
+    'outer: loop {
+        line.truncate(0);
+        'inner: loop {
+            tryerr!(reader.copy_until(&mut line, b'\n'), "Error reading LRSBuild");
+            match line.last() {
+                Some(&b'\n') => { line.pop(); },
+                None => break 'outer,
+                _ => { },
+            }
+            match line.last() {
+                Some(&b'\\') => { line.pop(); },
+                _ => break 'inner,
+            }
+        }
+
+        let mut words = line.split(|&b| b == b' ').filter(|w| w.len() > 0);
+
+        if let Some(cmd) = words.next() {
+            match cmd {
+                b"obj" => parse_obj(build, words),
+                _ => errexit!("unexpected predicate: {:?}", cmd.as_byte_str()),
             }
         }
     }
+}
 
-    for preobj in preobjs {
-        let mut obj = Obj::from_name(format!("{}", preobj.0));
-        for dep in preobj.1 {
-            let dep_name = format!("{}", dep);
-            match build.objs.iter().find(|x| x.borrow().name == dep_name) {
-                Some(x) => obj.deps.push(x.clone()),
-                _ => err!("can't find dependency {} of {}", dep_name, obj.name),
-            }
+fn parse_obj<'a, I>(build: &mut Build, mut words: I)
+    where I: Iterator<Item = &'a [u8]>,
+{
+    let name = match words.next() {
+        Some(n) => n,
+        _ => errexit!("obj without object name"),
+    };
+
+    let mut obj = Obj::from_name(name);
+    for dep in words {
+        let dep = dep.as_byte_str();
+        match build.objs.find(|x| &x.lock().name == dep) {
+            Some(p) => obj.deps.push(build.objs[p].new_ref()),
+            _ => errexit!("can't find dependency {:?} of {:?}", dep, obj.name),
         }
-        build.objs.push(Rc::new(RefCell::new(obj)));
     }
+
+    build.objs.push(Arc::new(Mutex::new(obj)).unwrap());
 }
 
 /// Gets the object we're interested in building.
@@ -287,61 +332,154 @@ fn parse(build: &mut Build) {
 /// This is either the "linux" object or the object in whose directory tree we are right
 /// now, e.g., if we are in `src/file` or any subdirectory, then we only want to build
 /// `file` and its dependencies.
-fn get_base_obj(build: &Build) -> Rc<RefCell<Obj>> {
-    let obj = build.start.as_ref().and_then(|s| build.objs.iter()
-                         .find(|o| &o.borrow().name == s));
-    match obj {
-        Some(o) => o.clone(),
+fn get_base_obj(build: &Build) -> Arc<Mutex<Obj>> {
+    let pos = build.start.as_ref().chain(|s| build.objs.find(|o| &o.lock().name == s));
+
+    match pos {
+        Some(p) => build.objs[p].new_ref(),
         _ => {
-            let mut obj = Obj::from_name("linux".to_string());
-            obj.deps = build.objs.clone();
-            Rc::new(RefCell::new(obj))
+            let mut obj = Obj::from_name(b"linux");
+            obj.deps = build.objs.clone().unwrap();
+            Arc::new(Mutex::new(obj)).unwrap()
         },
     }
 }
 
+struct Task {
+    obj: Arc<Mutex<Obj>>,
+    time: Time,
+}
+
+impl Task {
+    fn new(obj: Arc<Mutex<Obj>>) -> Task {
+        Task {
+            obj: obj,
+            time: mem::zeroed(),
+        }
+    }
+}
+
 /// The function that calls `rustc` and waits for it to exit.
-fn build_thread(num: usize, req_recv: Receiver<String>, res_send: Sender<(usize, bool)>) {
-    for req in req_recv.iter() {
-        let mut cmd = Command::new("rustc");
-        cmd.arg("--emit=link,dep-info");
-        cmd.arg("--out-dir=obj");
-        cmd.arg("-L").arg("obj");
-        cmd.arg(&format!("src/{}/lib.rs", req));
-        let res = cmd.spawn().and_then(|mut p| p.wait()).map(|r| r.success())
-                     .unwrap_or(false);
-        res_send.send((num, res)).unwrap();
+fn build_thread(requests: &Queue<Task>, results: &Queue<Task>, config: &Config) {
+    let mut args: CPtrPtr = CPtrPtr::new().unwrap();
+    let mut src_path: Vec<u8> = Vec::new();
+
+    loop {
+        let mut task = requests.pop_wait();
+        let start = time::Mono.get_time().unwrap();
+
+        src_path.truncate(0);
+        write!(src_path, "src/{}/lib.rs", task.obj.lock().name).unwrap();
+
+        args.truncate();
+        args.push("rustc").unwrap();
+        args.push("--emit=link,dep-info").unwrap();
+        args.push("--out-dir=obj").unwrap();
+        args.push("-Zno-landing-pads").unwrap();
+        args.push("-Cno-stack-check").unwrap();
+        args.push("-Lobj").unwrap();
+        for arg in &config.tail {
+            args.push(arg);
+        }
+        args.push(&src_path).unwrap();
+        let args = args.finish().unwrap();
+
+        let pid = process::fork(|| {
+            let res = process::exec("rustc", args);
+            tryerr!(res, "Could not exec rustc");
+        });
+        let pid = tryerr!(pid, "Could not fork");
+
+        let res = process::wait_id(pid, WAIT_EXITED);
+        let res = tryerr!(res, "Could not wait for child process");
+
+        if res != ChildStatus::Exited(0) {
+            errexit!("rustc did not exit successfully: {:?}", res);
+        }
+
+        let end = time::Mono.get_time().unwrap();
+        task.time = end - start;
+
+        results.push_wait(task);
+    }
+}
+
+struct Config {
+    times: bool,
+    tail: SVec<&'static CStr>,
+}
+
+fn parse_args() -> Config {
+    let mut times = false;
+
+    let mut args = env::args();
+    args.next(); // skip program name
+    while let Some(arg) = args.next() {
+        if arg == "--" {
+            break;
+        }
+        if arg.len() < 2 || arg[0] != b'-' {
+            errexit!("invalid argument: {}", arg.as_byte_str());
+        }
+        for &arg in arg[1..].as_byte_str().as_ref() {
+            match arg as char {
+                't' => times = true,
+                _ => errexit!("invalid argument: {:?}", arg as char),
+            }
+        }
+    }
+
+    Config {
+        times: times,
+        tail: args.collect(),
+    }
+}
+
+fn print_times(tasks: &mut [Task]) {
+    tasks.sort_by(|t1, t2| t2.time.cmp(&t1.time));
+    if tasks.len() == 0 {
+        return;
+    }
+    println!("");
+    for task in tasks {
+        let obj = task.obj.lock();
+        println!("{:3}.{:03}  {}", task.time.seconds, task.time.nanoseconds / 1_000_000,
+                                   obj.name);
     }
 }
 
 fn main() {
-    // For easier debugging of crashes.
-    env::set_var("RUST_BACKTRACE", "true");
-
     let (top_dir, start) = find_conf();
-    env::set_current_dir(&top_dir).unwrap();
+    let args = parse_args();
+    env::set_cwd(&top_dir).unwrap();
     let mut build = Build { start: start, objs: vec!() };
-    parse(&mut build);
+    parse_config(&mut build);
     let target = get_base_obj(&build);
-    target.borrow_mut().check_needs_rebuild();
+    target.lock().check_needs_rebuild();
 
-    let _ = fs::create_dir("obj");
+    let _ = file::create_dir("obj", file::Mode::new_directory());
 
-    let (res_send, res_recv) = channel();
-    let mut threads = vec!();
-    for i in 0..os::num_cpus() {
-        let (req_send, req_recv) = channel();
-        let res_send = res_send.clone();
-        thread::spawn(move || build_thread(i, req_recv, res_send));
-        threads.push((req_send, None));
+    let num_builders = sys::cpu_count();
+
+    let results = Queue::new(num_builders).unwrap();
+    let requests = Queue::new(num_builders).unwrap();
+
+    let mut builders: Vec<_> = Vec::with_capacity(num_builders).unwrap();
+
+    for _ in 0..num_builders {
+        let thread = thread::scoped(|| build_thread(&requests, &results, &args));
+        let thread = tryerr!(thread, "Could not spawn threads");
+        builders.push(thread);
     }
-    let mut num_building = 0;
 
+    let mut num_building = 0;
+    let mut finished_tasks: Vec<_> = Vec::new();
     let mut cur_target = None;
+
     'outer: loop {
         if cur_target.is_none() {
             // Find the next target that can be built. If nothing new can be built and
-            // there are not compilations running, then we're done.
+            // there are no compilations running, then we're done.
             cur_target = match next_target(&target) {
                 Ok(t) => Some(t),
                 Err(false) if num_building == 0 => break,
@@ -349,31 +487,28 @@ fn main() {
             };
         }
 
-        if cur_target.is_some() && num_building < threads.len() {
-            for thread in &mut threads {
-                if thread.1.is_none() {
-                    let cur_target = cur_target.take().unwrap();
-                    {
-                        let mut target = cur_target.borrow_mut();
-                        target.build_status = BuildStatus::Building;
-                        println!("  building {}", target.name);
-                    }
-                    thread.0.send(cur_target.borrow().name.clone()).unwrap();
-                    thread.1 = Some(cur_target);
-                    num_building += 1;
-                    continue 'outer;
-                }
+        if cur_target.is_some() && num_building < builders.len() {
+            let cur_target = cur_target.take().unwrap();
+            {
+                let mut target = cur_target.lock();
+                target.build_status = BuildStatus::Building;
+                println!("  building {}", target.name);
             }
+            requests.push_wait(Task::new(cur_target));
+            num_building += 1;
+        } else {
+            let task = results.pop_wait();
+            num_building -= 1;
+            task.obj.lock().build_status = BuildStatus::Built;
+            finished_tasks.push(task);
         }
-
-        // Either there is currently no target or all threads are busy.
-
-        let (thread_num, res) = res_recv.recv().unwrap();
-        let target = threads[thread_num].1.take().unwrap();
-        if !res {
-            err!("building {} failed", target.borrow().name);
-        }
-        num_building -= 1;
-        target.borrow_mut().build_status = BuildStatus::Built;
     }
+
+    if args.times {
+        print_times(&mut finished_tasks);
+    }
+
+    // We have no way to tell the builders that we're done so the join handles would try
+    // to join indefinitely.
+    process::exit(0);
 }
