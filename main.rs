@@ -5,25 +5,25 @@
 #![crate_type = "bin"]
 #![crate_name = "new_lrs_build"]
 #![feature(plugin, no_std)]
-#![plugin(linux_core_plugin)]
+#![plugin(lrs_core_plugin)]
 #![no_std]
 
-#[macro_use] extern crate linux;
-mod core { pub use linux::core::*; }
-#[allow(unused_imports)] #[prelude_import] use linux::prelude::*;
+#[macro_use] extern crate lrs;
+mod core { pub use lrs::core::*; }
+#[allow(unused_imports)] #[prelude_import] use lrs::prelude::*;
 
-use linux::file::{self, File};
-use linux::time::{self, Time};
-use linux::rc::{Arc};
-use linux::sync::{Queue, Mutex};
-use linux::{env, sys, mem, cmp, thread};
-use linux::process::{self, WAIT_EXITED, ChildStatus};
-use linux::vec::{SVec};
-use linux::string::{
+use lrs::file::{self, File};
+use lrs::time::{self, Time};
+use lrs::rc::{Arc};
+use lrs::sync::{Queue, Mutex};
+use lrs::{env, sys, mem, cmp, thread};
+use lrs::process::{self, WAIT_EXITED, ChildStatus};
+use lrs::vec::{SVec};
+use lrs::string::{
     NoNullString, SNoNullString, SByteString, CPtrPtr, AsByteStr, ByteString, CStr,
 };
-use linux::io::{BufReader, BufRead};
-use linux::iter::{IteratorExt};
+use lrs::io::{BufReader, BufRead};
+use lrs::iter::{IteratorExt};
 
 /// Print an error to stderr and exit.
 macro_rules! errexit {
@@ -125,12 +125,12 @@ impl Obj {
             return true;
         }
 
-        // Generate the full name of the object. If the name is "linux", then it refers to
-        // the final crate "linux" which is already its full name. Otherwise, e.g. if it's
-        // "core" or "file", the full name has the "linux_" prefix.
+        // Generate the full name of the object. If the name is "lrs", then it refers to
+        // the final crate "lrs" which is already its full name. Otherwise, e.g. if it's
+        // "core" or "file", the full name has the "lrs_" prefix.
         let full_name: ByteString = match self.name.as_ref() {
-            b"linux" => "linux".as_byte_str().to_owned().unwrap(),
-            _ => format!("linux_{}", self.name),
+            b"lrs" => "lrs".as_byte_str().to_owned().unwrap(),
+            _ => format!("lrs_{}", self.name),
         };
         let obj_path: ByteString = format!("obj/lib{}.rlib", full_name);
 
@@ -329,7 +329,7 @@ fn parse_obj<'a, I>(build: &mut Build, mut words: I)
 
 /// Gets the object we're interested in building.
 ///
-/// This is either the "linux" object or the object in whose directory tree we are right
+/// This is either the "lrs" object or the object in whose directory tree we are right
 /// now, e.g., if we are in `src/file` or any subdirectory, then we only want to build
 /// `file` and its dependencies.
 fn get_base_obj(build: &Build) -> Arc<Mutex<Obj>> {
@@ -338,7 +338,7 @@ fn get_base_obj(build: &Build) -> Arc<Mutex<Obj>> {
     match pos {
         Some(p) => build.objs[p].new_ref(),
         _ => {
-            let mut obj = Obj::from_name(b"linux");
+            let mut obj = Obj::from_name(b"lrs");
             obj.deps = build.objs.clone().unwrap();
             Arc::new(Mutex::new(obj)).unwrap()
         },
