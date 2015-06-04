@@ -3,7 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 #![crate_type = "bin"]
-#![crate_name = "new_lrs_build"]
+#![crate_name = "lrs_build"]
 #![feature(plugin, no_std)]
 #![plugin(lrs_core_plugin)]
 #![no_std]
@@ -24,6 +24,7 @@ use lrs::string::{
 };
 use lrs::io::{BufReader, BufRead};
 use lrs::iter::{IteratorExt};
+use lrs::getopt::{Getopt};
 
 /// Print an error to stderr and exit.
 macro_rules! errexit {
@@ -97,7 +98,7 @@ impl Obj {
     ///
     /// After this function returns, the needs_rebuild field is `Some` for this object
     /// and, recursively, all of its dependencies.
-    fn check_needs_rebuild(&mut self) -> bool {
+    fn check_needs_rebuild(&mut self, force_rebuild: bool) -> bool {
         // The check was already run for this object. This can happen if this is a
         // dependency of multiple objects.
         if self.needs_rebuild.is_some() {
@@ -108,7 +109,7 @@ impl Obj {
         let mut last_dep_built = Time::seconds(0);
         for dep in &self.deps {
             let mut dep = dep.lock();
-            if dep.check_needs_rebuild() {
+            if dep.check_needs_rebuild(force_rebuild) {
                 // If a dependency has to be rebuilt, then this object also has to be
                 // rebuilt. We don't return here because of the guarantee in the function
                 // documentation.
@@ -119,6 +120,10 @@ impl Obj {
                 // object was built.
                 last_dep_built = cmp::max(last_dep_built, dep.obj_modified.unwrap());
             }
+        }
+
+        if force_rebuild {
+            self.needs_rebuild = Some(true);
         }
 
         if self.needs_rebuild == Some(true) {
@@ -406,32 +411,52 @@ fn build_thread(requests: &Queue<Task>, results: &Queue<Task>, config: &Config) 
 
 struct Config {
     times: bool,
+    finishes: bool,
+    graph: bool,
+    rebuild: bool,
     tail: SVec<&'static CStr>,
+}
+
+fn print_help(code: u8) -> ! {
+    const HELP: &'static str = "\
+Usage: lrs_build [options]*
+Options:
+  -r --rebuild Rebuild everything
+  -t --times   Print compile times after a successful exit
+  -f --finish  Print when a compile step finishes
+  -g --graph   Print the dependency graph and exit
+  -h --help    Print this help and exit";
+    println!("{}", HELP);
+    process::exit(code);
 }
 
 fn parse_args() -> Config {
     let mut times = false;
+    let mut finishes = false;
+    let mut graph = false;
+    let mut rebuild = false;
 
     let mut args = env::args();
     args.next(); // skip program name
-    while let Some(arg) = args.next() {
-        if arg == "--" {
-            break;
-        }
-        if arg.len() < 2 || arg[0] != b'-' {
-            errexit!("invalid argument: {}", arg.as_byte_str());
-        }
-        for &arg in arg[1..].as_byte_str().as_ref() {
-            match arg as char {
-                't' => times = true,
-                _ => errexit!("invalid argument: {:?}", arg as char),
-            }
+
+    let mut getopts = Getopt::new(args, &[]);
+    for (arg, _) in &mut getopts {
+        match arg.as_ref() {
+            b"r" | b"rebuild" => rebuild = true,
+            b"t" | b"times" => times = true,
+            b"f" | b"finish" => finishes = true,
+            b"g" | b"graph" => graph = true,
+            b"h" | b"help" => print_help(0),
+            _ => errexit!("invalid argument: {:?}", arg),
         }
     }
 
     Config {
         times: times,
-        tail: args.collect(),
+        finishes: finishes,
+        graph: graph,
+        rebuild: rebuild,
+        tail: env::args().consume(getopts.used()+1).collect(),
     }
 }
 
@@ -448,14 +473,32 @@ fn print_times(tasks: &mut [Task]) {
     }
 }
 
+fn print_graph(build: &Build) {
+    println!("digraph deps {{");
+    for obj in &build.objs {
+        let obj = obj.lock();
+        for dep in &obj.deps {
+            let dep = dep.lock();
+            println!("{} -> {};", obj.name, dep.name);
+        }
+    }
+    println!("}}");
+}
+
 fn main() {
     let (top_dir, start) = find_conf();
     let args = parse_args();
     env::set_cwd(&top_dir).unwrap();
     let mut build = Build { start: start, objs: vec!() };
     parse_config(&mut build);
+
+    if args.graph {
+        print_graph(&build);
+        return;
+    }
+
     let target = get_base_obj(&build);
-    target.lock().check_needs_rebuild();
+    target.lock().check_needs_rebuild(args.rebuild);
 
     let _ = file::create_dir("obj", file::Mode::new_directory());
 
@@ -500,6 +543,9 @@ fn main() {
             let task = results.pop_wait();
             num_building -= 1;
             task.obj.lock().build_status = BuildStatus::Built;
+            if args.finishes {
+                println!("    finished {}", task.obj.lock().name);
+            }
             finished_tasks.push(task);
         }
     }
