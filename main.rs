@@ -2,8 +2,6 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-#![crate_name = "lrs_build"]
-
 use std::file::{self, File};
 use std::file::mode::{MODE_DIRECTORY};
 use std::time::{self, Time};
@@ -356,7 +354,7 @@ impl Task {
     }
 }
 
-/// The function that calls `rustc` and waits for it to exit.
+/// The function that calls `lrsc` and waits for it to exit.
 fn build_thread(requests: &Queue<Task>, results: &Queue<Task>, config: &Config) {
     let mut args: CPtrPtr = CPtrPtr::new().unwrap();
     let mut src_path: Vec<u8> = Vec::new();
@@ -369,11 +367,9 @@ fn build_thread(requests: &Queue<Task>, results: &Queue<Task>, config: &Config) 
         write!(src_path, "src/{}/lib.rs", task.obj.lock().name).unwrap();
 
         args.clear();
-        args.push("rustc").unwrap();
+        args.push("lrsc").unwrap();
         args.push("--emit=link,dep-info").unwrap();
         args.push("--out-dir=obj").unwrap();
-        args.push("-Zno-landing-pads").unwrap();
-        args.push("-Cno-stack-check").unwrap();
         args.push("-Lobj").unwrap();
         for arg in &config.tail {
             args.push(arg);
@@ -382,7 +378,7 @@ fn build_thread(requests: &Queue<Task>, results: &Queue<Task>, config: &Config) 
         let args = args.finish().unwrap();
 
         let pid = process::fork(|| {
-            let res = process::exec("rustc", args);
+            let res = process::exec("lrsc", args);
             tryerr!(res, "Could not exec rustc");
         });
         let pid = tryerr!(pid, "Could not fork");
@@ -433,7 +429,7 @@ fn parse_args() -> Config {
 
     let mut getopts = Getopt::new(args, &[]);
     for (arg, _) in &mut getopts {
-        match <AsRef<[u8]>>::as_ref(&arg) {
+        match <AsRef<[u8]>>::as_ref(&arg) { // arg.as_ref():&[u8] ???
             b"r" | b"rebuild" => rebuild = true,
             b"t" | b"times" => times = true,
             b"f" | b"finish" => finishes = true,
