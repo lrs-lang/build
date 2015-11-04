@@ -2,29 +2,20 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-#![crate_type = "bin"]
 #![crate_name = "lrs_build"]
-#![feature(plugin, no_std)]
-#![plugin(lrs_core_plugin)]
-#![no_std]
 
-#[macro_use] extern crate lrs;
-mod core { pub use lrs::core::*; }
-#[allow(unused_imports)] #[prelude_import] use lrs::prelude::*;
-
-use lrs::file::{self, File};
-use lrs::time::{self, Time};
-use lrs::rc::{Arc};
-use lrs::sync::{Queue, Mutex};
-use lrs::{env, sys, mem, cmp, thread};
-use lrs::process::{self, WAIT_EXITED, ChildStatus};
-use lrs::vec::{SVec};
-use lrs::string::{
-    NoNullString, SNoNullString, SByteString, CPtrPtr, AsByteStr, ByteString, CStr,
-};
-use lrs::io::{BufReader, BufRead};
-use lrs::iter::{IteratorExt};
-use lrs::getopt::{Getopt};
+use std::file::{self, File};
+use std::file::mode::{MODE_DIRECTORY};
+use std::time::{self, Time};
+use std::clone::{MaybeClone};
+use std::rc::{Arc};
+use std::sync::{Queue, Mutex};
+use std::{env, mem, cmp, thread};
+use std::process::{self, WAIT_EXITED, ChildStatus};
+use std::string::{NoNullString, ByteString, CPtrPtr, AsByteStr, CStr};
+use std::io::{BufReader, BufRead};
+use std::iter::{IteratorExt};
+use std::getopt::{Getopt};
 
 /// Print an error to stderr and exit.
 macro_rules! errexit {
@@ -47,8 +38,8 @@ macro_rules! tryerr {
 
 /// Object containing the state of the build process.
 struct Build {
-    start: Option<SNoNullString>,
-    objs: SVec<Arc<Mutex<Obj>>>,
+    start: Option<NoNullString>,
+    objs: Vec<Arc<Mutex<Obj>>>,
 }
 
 /// Status of an obj that needs rebuilding.
@@ -67,7 +58,7 @@ enum BuildStatus {
 /// A single object in our build tree.
 struct Obj {
     /// Name of the object, e.g., "core" or "file".
-    name: SByteString,
+    name: ByteString,
 
     /// Whether the object need rebuilding.
     needs_rebuild: Option<bool>,
@@ -79,7 +70,7 @@ struct Obj {
     build_status: BuildStatus,
 
     /// The dependencies of this object.
-    deps: SVec<Arc<Mutex<Obj>>>,
+    deps: Vec<Arc<Mutex<Obj>>>,
 }
 
 impl Obj {
@@ -111,11 +102,11 @@ impl Obj {
             let mut dep = dep.lock();
             if dep.check_needs_rebuild(force_rebuild) {
                 // If a dependency has to be rebuilt, then this object also has to be
-                // rebuilt. We don't return here because of the guarantee in the function
-                // documentation.
+                // rebuilt. We don't exit the loop prematurely because of the guarantee in
+                // the function documentation.
                 self.needs_rebuild = Some(true);
             } else {
-                // If we don't have to rebuilt this dependency, then we might still have
+                // If we don't have to rebuild this dependency, then we might still have
                 // to rebuild this object because the dependency was built after this
                 // object was built.
                 last_dep_built = cmp::max(last_dep_built, dep.obj_modified.unwrap());
@@ -133,9 +124,10 @@ impl Obj {
         // Generate the full name of the object. If the name is "lrs", then it refers to
         // the final crate "lrs" which is already its full name. Otherwise, e.g. if it's
         // "core" or "file", the full name has the "lrs_" prefix.
-        let full_name: ByteString = match self.name.as_ref() {
-            b"lrs" => "lrs".as_byte_str().to_owned().unwrap(),
-            _ => format!("lrs_{}", self.name),
+        let full_name: ByteString = if &self.name == "lrs" {
+            "lrs".as_byte_str().to_owned().unwrap()
+        } else {
+            format!("lrs_{}", self.name)
         };
         let obj_path: ByteString = format!("obj/lib{}.rlib", full_name);
 
@@ -150,7 +142,7 @@ impl Obj {
         };
 
         // The object exists. We have to check if any of the dependencies were rebuilt
-        // after this object was build.
+        // after this object was built.
         if obj_modified < last_dep_built {
             self.needs_rebuild = Some(true);
             return true;
@@ -161,7 +153,7 @@ impl Obj {
         let mut dep_buf = [0; 4096];
         let dep_path: ByteString = format!("obj/{}.d", full_name);
         let mut deps_file = match File::open_read(&dep_path) {
-            Ok(f) => BufReader::new(f, &mut dep_buf),
+            Ok(f) => BufReader::buffered(f, &mut dep_buf),
             _ => {
                 // For some reason the ".rlib" exists but the ".d" doesn't exist. In this
                 // case we just rebuild the object.
@@ -248,7 +240,7 @@ fn next_target(obj: &Arc<Mutex<Obj>>) -> Result<Arc<Mutex<Obj>>, bool> {
     }
 
     match can_build {
-        true => Ok(obj.new_ref()),
+        true => Ok(obj.add_ref()),
         _ => Err(true),
     }
 }
@@ -257,9 +249,9 @@ fn next_target(obj: &Arc<Mutex<Obj>>) -> Result<Arc<Mutex<Obj>>, bool> {
 ///
 /// The directory layout is `conf_dir/src/file` so the second directory after it can be,
 /// e.g., "file" or "core".
-fn find_conf() -> (SNoNullString, Option<SNoNullString>) {
+fn find_conf() -> (NoNullString, Option<NoNullString>) {
     let mut path = NoNullString::new();
-    tryerr!(env::cwd(&mut path), "Couldn't get cwd");
+    tryerr!(env::get_cwd(&mut path), "Couldn't get cwd");
 
     let mut last = None;
     let mut second_to_last = None;
@@ -283,7 +275,7 @@ fn parse_config(build: &mut Build) {
     let file = tryerr!(File::open_read("LRSBuild"), "Error opening LRSBuild");
 
     let mut buf = [0; 4096];
-    let mut reader = BufReader::new(file, &mut buf);
+    let mut reader = BufReader::buffered(file, &mut buf);
     let mut line: Vec<_> = Vec::new();
 
     'outer: loop {
@@ -324,12 +316,12 @@ fn parse_obj<'a, I>(build: &mut Build, mut words: I)
     for dep in words {
         let dep = dep.as_byte_str();
         match build.objs.find(|x| &x.lock().name == dep) {
-            Some(p) => obj.deps.push(build.objs[p].new_ref()),
+            Some(p) => obj.deps.push(build.objs[p].add_ref()),
             _ => errexit!("can't find dependency {:?} of {:?}", dep, obj.name),
         }
     }
 
-    build.objs.push(Arc::new(Mutex::new(obj)).unwrap());
+    build.objs.push(Arc::new().unwrap().set(Mutex::new(obj)));
 }
 
 /// Gets the object we're interested in building.
@@ -341,11 +333,11 @@ fn get_base_obj(build: &Build) -> Arc<Mutex<Obj>> {
     let pos = build.start.as_ref().chain(|s| build.objs.find(|o| &o.lock().name == s));
 
     match pos {
-        Some(p) => build.objs[p].new_ref(),
+        Some(p) => build.objs[p].add_ref(),
         _ => {
             let mut obj = Obj::from_name(b"lrs");
-            obj.deps = build.objs.clone().unwrap();
-            Arc::new(Mutex::new(obj)).unwrap()
+            obj.deps = build.objs.maybe_clone().unwrap();
+            Arc::new().unwrap().set(Mutex::new(obj))
         },
     }
 }
@@ -371,12 +363,12 @@ fn build_thread(requests: &Queue<Task>, results: &Queue<Task>, config: &Config) 
 
     loop {
         let mut task = requests.pop_wait();
-        let start = time::Mono.get_time().unwrap();
+        let start = time::MONO.get_time().unwrap();
 
         src_path.truncate(0);
         write!(src_path, "src/{}/lib.rs", task.obj.lock().name).unwrap();
 
-        args.truncate();
+        args.clear();
         args.push("rustc").unwrap();
         args.push("--emit=link,dep-info").unwrap();
         args.push("--out-dir=obj").unwrap();
@@ -402,7 +394,7 @@ fn build_thread(requests: &Queue<Task>, results: &Queue<Task>, config: &Config) 
             errexit!("rustc did not exit successfully: {:?}", res);
         }
 
-        let end = time::Mono.get_time().unwrap();
+        let end = time::MONO.get_time().unwrap();
         task.time = end - start;
 
         results.push_wait(task);
@@ -414,7 +406,7 @@ struct Config {
     finishes: bool,
     graph: bool,
     rebuild: bool,
-    tail: SVec<&'static CStr>,
+    tail: Vec<&'static CStr>,
 }
 
 fn print_help(code: u8) -> ! {
@@ -441,7 +433,7 @@ fn parse_args() -> Config {
 
     let mut getopts = Getopt::new(args, &[]);
     for (arg, _) in &mut getopts {
-        match arg.as_ref() {
+        match <AsRef<[u8]>>::as_ref(&arg) {
             b"r" | b"rebuild" => rebuild = true,
             b"t" | b"times" => times = true,
             b"f" | b"finish" => finishes = true,
@@ -500,9 +492,9 @@ fn main() {
     let target = get_base_obj(&build);
     target.lock().check_needs_rebuild(args.rebuild);
 
-    let _ = file::create_dir("obj", file::Mode::new_directory());
+    let _ = file::create_dir("obj", MODE_DIRECTORY);
 
-    let num_builders = sys::cpu_count();
+    let num_builders = thread::cpu_count().unwrap();
 
     let results = Queue::new(num_builders).unwrap();
     let requests = Queue::new(num_builders).unwrap();
