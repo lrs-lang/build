@@ -1,14 +1,13 @@
-musl := "/home/julian/c/musl"
+.PHONY: all clean
 
-.PHONY: all clean lib
+-include config.mk
 
 all: lrs_build
 
-lrs_build: main.rs ../lib/obj/liblrs.rlib Makefile
-	@# lrsc -O -C lto -L ../lib/obj -C link-args="-nostdlib $(musl)/lib/crt1.o -L $(musl)/lib -static -l c -l pthread" "$<" -o "$@"
-	@# lrsc -O -C lto -L ../obj -L /usr/local/lib "$<" -o "$@"
-	@# lrsc -g -C lto -L ../lib/obj "$<" -o "$@"
-	lrsc -O -C lto -L ../lib/obj "$<" -o "$@"
+-include lrs_build.d
+
+lrs_build: main.rs
+	lrsc $(ops) --emit=link,dep-info $<
 
 clean:
-	rm bin/*
+	rm -f lrs_build

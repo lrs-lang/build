@@ -1,6 +1,6 @@
 = lrs_build
 
-The build system of linux-rs.
+The build system of lrs
 
 == Why another build system
 
