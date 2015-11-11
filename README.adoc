@@ -9,13 +9,13 @@ Options:
   -t --times   Print compile times after a successful exit
   -f --finish  Print when a compile step finishes
   -g --graph   Print the dependency graph and exit
-  -h --help    Print this help and exit";
+  -h --help    Print this help and exit
 ----
 
 lrs_build allows us to do the following things efficiently:
 
-* Build only those crates that have modified or whose dependencies have been
-  modified.
+* Build only those crates that have been modified or whose dependencies have
+  been modified.
 * Build only the crate we're currently working on and possibly its modified
   dependencies.
 * Forward arbitrary arguments to lrsc.
