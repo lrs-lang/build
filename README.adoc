@@ -1,6 +1,6 @@
 = lrs_build
 
-lrs_build is the special-purpse build system of lrs.
+lrs_build is the special-purpose build system of lrs.
 
 ----
 Usage: lrs_build [options]*
