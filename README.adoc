@@ -1,51 +1,80 @@
 = lrs_build
 
-The build system of lrs
+lrs_build is the special-purpse build system of lrs.
 
-== Why another build system
+----
+Usage: lrs_build [options]*
+Options:
+  -r --rebuild Rebuild everything
+  -t --times   Print compile times after a successful exit
+  -f --finish  Print when a compile step finishes
+  -g --graph   Print the dependency graph and exit
+  -h --help    Print this help and exit";
+----
 
-Linux-rs is organized as many small crates which compile into many small object
-files. Cargo cannot efficiently deal with this. If we use Cargo, then every
-object needs its own `Cargo.toml` file with lots of redundant information.
+lrs_build allows us to do the following things efficiently:
 
-The reason we split linux-rs up into many small crates is that we want the
-compile times to be bearable. Consider the following case:
+* Build only those crates that have modified or whose dependencies have been
+  modified.
+* Build only the crate we're currently working on and possibly its modified
+  dependencies.
+* Forward arbitrary arguments to lrsc.
 
-We're working on `src/file` and notice that we have to change something in
-`src/core`. Then we continue working on `src/file` and compile it with
-`cargo build`. Once we're done working on `src/file`, we go to `src/linux` and
-run `cargo build` there. But then Cargo will recompile `src/core` and `src/file`
-even though we've already compiled both. That's because Cargo will store the
-results of the compilation in `src/file/target/../deps` and it doesn't know
-about that when we're compiling in `src/linux`.
+When lrs_build is invoked, it searches the directory tree upwards for a
+directory that contains a file called LRSBuild. Then it checks from which
+directory it was invoked: If it was invoked from `./src/io` or any of its
+subdirectories, lrs_build will only build the `io` crate and possibly its
+dependencies. But if lrs was invoked from `./src` or `.`, it will build all of
+lrs.
 
-On the other hand, lrs_build stores everything in the top-level `obj` directory.
+Unless the `-r` argument was used, lrs_build will only rebuild those crates
+whose dependencies--source code or other crates--have changed. The `-r` argument
+is sometimes necessary hen you want to change the arguments lrsc uses when
+compiling a crate, for example, configuration flags.
 
-== How to
-
-lrs_build can be compiled by running `rustc main.rs`.
-
-When you run `lrs_build` you have to be in the directory that contains the
-`LRSBuild` file or any subdirectory. By default, `lrs_build` will compile all
-objects, including the final `linux` object. However, if you are in one of the
-object subdirectories, e.g. `src/file`, then it will only compile the objects
-that are necessary to compile `src/file`.
+In order to pass arbitrary arguments to lrsc, terminate the lrs_build argument
+list with `--` and append the lrsc arguments. For example:
++
+----
+lrs_build -r -- -O
+----
++
+rebuilds all of lrs with optimization enabled.
 
 == `LRSBuild` syntax
 
 The `LRSBuild` file has the following syntax:
-
++
 ----
 obj <obj_name> [dependency_name]*
 ----
 
-For example:
-
+For example,
++
 ----
 obj core
 obj clock core
 ----
-
-This means that `core` has no dependencies and `clock` has only the `core`
++
+means that `core` has no dependencies and `clock` has only the `core`
 dependency. The dependencies should be exactly the dependencies that are
 declared via `extern crate` in the `lib.rs` file.
+
+lrs_build will build crates in parallel if possible.
+
+== Printing a dependency graph
+
+lrs_build can print a dependency graph with the `-g` argument. For example,
++
+----
+lrs_build -g | dot -T svg -o graph.svg
+----
++
+will print the graph to the `graph.svg` file.
+
+== Building lrs_build
+
+:bau: https://github.com/lrs-lang/lib/blob/master/Documentation/adoc/building_and_using.adoc
+
+Assuming that you've already followed the {bau}[Building and Using] guide to
+this point, you can build lrs_build with the provided makefile.
