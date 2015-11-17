@@ -5,11 +5,12 @@ lrs_build is the special-purpose build system of lrs.
 ----
 Usage: lrs_build [options]*
 Options:
-  -r --rebuild Rebuild everything
-  -t --times   Print compile times after a successful exit
-  -f --finish  Print when a compile step finishes
-  -g --graph   Print the dependency graph and exit
-  -h --help    Print this help and exit
+  -r --rebuild          Rebuild everything
+  -t --target <TARGET>  Build for <TARGET> instead of the default target 
+     --times            Print compile times after a successful exit
+  -f --finish           Print when a compile step finishes
+  -g --graph            Print the dependency graph and exit
+  -h --help             Print this help and exit
 ----
 
 lrs_build allows us to do the following things efficiently:
@@ -31,6 +32,14 @@ Unless the `-r` argument was used, lrs_build will only rebuild those crates
 whose dependencies--source code or other crates--have changed. The `-r` argument
 is sometimes necessary hen you want to change the arguments lrsc uses when
 compiling a crate, for example, configuration flags.
+
+lrs_build will, by default, build for your native target. This can be
+overwritten by using the `-t` flag. Possible arguments are
+
+* x86_64,
+* i686,
+* arm, and
+* aarch64.
 
 In order to pass arbitrary arguments to lrsc, terminate the lrs_build argument
 list with `--` and append the lrsc arguments. For example:
