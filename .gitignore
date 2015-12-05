@@ -1,3 +1,4 @@
 config.mk
 lrs_build
 lrs_build.d
+obj
