@@ -13,15 +13,16 @@ use std::hashmap::{HashMap};
 use {BuildStatus, Build, Obj};
 use term::{self, Color, CharAttr};
 
+use {lrsb_funcs};
 use lrsb_lexer::{Lexer};
 use lrsb_parser::{Parser};
 use lrsb_eval::{Eval};
 
-use lrsb_types::diagnostic::{Diagnostic};
+use lrsb_types::diagnostic::{Diagnostic, Error, Notice};
 use lrsb_types::codemap::{Codemap};
 use lrsb_types::interner::{Interner, Interned};
 use lrsb_types::span::{Span, Spanned};
-use lrsb_types::tree::{SExpr, Expr_, Expr, Selector, BuiltInFn, FnType};
+use lrsb_types::tree::{SExpr, Expr_, Expr, Selector, FnType};
 
 pub fn parse(build_path: &NoNullStr, original: &NoNullStr, cfgs: &[&CStr],
              v: Vec<u8>) -> Result<Build> {
@@ -34,7 +35,7 @@ pub fn parse(build_path: &NoNullStr, original: &NoNullStr, cfgs: &[&CStr],
         map.add_file(path, input.clone());
         try!(Rc::new()).set(RefCell::new(map))
     };
-    let diag = try!(Rc::new()).set(FdDiag::new(map.clone(), STDERR));
+    let diag = try!(Rc::new()).set(FdDiag::new(map.clone(), interner.clone(), STDERR));
 
     let tree = {
         let lexer = Lexer::new(0, input.clone(), diag.clone(), interner.clone(),
@@ -46,8 +47,7 @@ pub fn parse(build_path: &NoNullStr, original: &NoNullStr, cfgs: &[&CStr],
     let cfgs = {
         let mut ncfgs: Vec<_> = try!(Vec::with_capacity(cfgs.len()));
         for c in cfgs {
-            let c: &NoNullStr = c.as_ref();
-            ncfgs.push(interner.insert(try!(c.to_owned()).unwrap()));
+            ncfgs.push(interner.insert(try!(c.to_owned()).into()));
         }
         ncfgs
     };
@@ -57,16 +57,16 @@ pub fn parse(build_path: &NoNullStr, original: &NoNullStr, cfgs: &[&CStr],
         let mut path = original;
         while path != build_path {
             let (l, r) = path.split();
-            p.push(interner.insert(try!(r.to_owned()).unwrap()));
+            p.push(interner.insert(try!(r.to_owned()).into()));
             path = l;
         }
         p.reverse();
         p
     };
 
-    let expr = std_apl(tree, &interner, &cfgs, &path);
+    let eval = Rc::new().unwrap().set(Eval::new(diag.clone(), interner.clone()));
 
-    let eval = Eval::new(diag.clone(), interner.clone());
+    let expr = try!(std_apl(tree, eval.clone(), &interner, &cfgs, &path));
 
     flatten(&eval, expr, &diag, &interner)
 }
@@ -88,9 +88,7 @@ fn flatten<D>(eval: &Eval<D>, expr: SExpr, diag: &D,
             let c = match c.as_no_null_str() {
                 Ok(c) => try!(c.to_owned()),
                 Err(..) => {
-                    diag.error(cfg.span , |mut w| {
-                        write!(w, "string contains an interior null: {:?}", c)
-                    });
+                    diag.error(cfg.span, Error::InteriorNull);
                     eval.trace(cfg);
                     return Err(error::InvalidSequence);
                 },
@@ -116,9 +114,7 @@ fn get_target<D>(eval: &Eval<D>, target: &SExpr, diag: &D, interner: &Interner,
     where D: Diagnostic,
 {
     if target.val.val.status() != RefCellStatus::Free {
-        diag.error(target.span , |mut w| {
-            write!(w, "dependency list is recursive")
-        });
+        diag.error(target.span, Error::InfiniteRecursion);
         eval.trace(target);
         return Err(error::InvalidSequence);
     };
@@ -133,9 +129,7 @@ fn get_target<D>(eval: &Eval<D>, target: &SExpr, diag: &D, interner: &Interner,
             match interner.get(s).as_no_null_str() {
                 Ok(s) => try!(s.to_owned()),
                 Err(..) => {
-                    diag.error(e.span , |mut w| {
-                        write!(w, "string contains an interior null2")
-                    });
+                    diag.error(e.span, Error::InteriorNull);
                     eval.trace(&e);
                     return Err(error::InvalidSequence);
                 },
@@ -182,14 +176,17 @@ fn get_target<D>(eval: &Eval<D>, target: &SExpr, diag: &D, interner: &Interner,
 
 pub struct FdDiag {
     codemap: Rc<RefCell<Codemap>>,
+    interner: Rc<Interner>,
     out: FdIo,
     is_term: bool,
 }
 
 impl FdDiag {
-    pub fn new(codemap: Rc<RefCell<Codemap>>, fd: FdIo) -> FdDiag {
+    pub fn new(codemap: Rc<RefCell<Codemap>>, interner: Rc<Interner>,
+               fd: FdIo) -> FdDiag {
         FdDiag {
             codemap: codemap,
+            interner: interner,
             out: fd,
             is_term: tty::is_a_tty(&fd),
         }
@@ -203,7 +200,7 @@ impl FdDiag {
         if self.is_term { term::set_char_attr(c, b); }
     }
 
-    fn common<F>(&self, span: Span, f: F, color: Color, prefix: &str)
+    fn common<F>(&self, span: Span, color: Color, prefix: &str, f: F)
         where F: FnOnce(&mut Write) -> Result,
     {
         if span == Span::built_in() {
@@ -253,7 +250,7 @@ impl FdDiag {
             self.set_fg_color(color);
             self.set_char_attr(CharAttr::Bold, true);
             write!(&self.out, "^");
-            for _ in lines.start_idx()..lines.last_idx()-1 {
+            for _ in lines.start_idx()..lines.last_idx() {
                 write!(&self.out, "~");
             }
             self.set_fg_color(Color::Default);
@@ -264,16 +261,102 @@ impl FdDiag {
 }
 
 impl Diagnostic for FdDiag {
-    fn error<F>(&self, span: Span, f: F)
-        where F: FnOnce(&mut Write) -> Result,
-    {
-        self.common(span, f, Color::Red, "error: ");
+    fn error(&self, span: Span, error: Error) {
+        macro_rules! err {
+            ($f:expr) => { self.common(span, Color::Red, "error: ", $f) }
+        }
+        match error {
+            Error::Unbound(id) => err!(move |mut w| {
+                write!(w, "unbound name: `{}`", self.interner.get(id))
+            }),
+            Error::FnPatMismatch => err!(move |mut w| {
+                write!(w, "argument does not match function pattern")
+            }),
+            Error::ArgMissingField(id) => err!(move |mut w| {
+                write!(w, "argument misses field `{}`", self.interner.get(id))
+            }),
+            Error::DivideByZero => err!(move |mut w| {
+                write!(w, "attempted to divide by zero")
+            }),
+            Error::FoundExpr(ex, found) => err!(move |mut w| {
+                write!(w, "expected {}, found {:?}", ex, found.val)
+            }),
+            Error::FoundToken(ex, found) => err!(move |mut w| {
+                write!(w, "expected {}, found {:?}", ex, found.val)
+            }),
+            Error::FoundString(ex, found) => err!(move |mut w| {
+                write!(w, "expected {}, found {}", ex, found)
+            }),
+            Error::FoundChar(ex, found) => err!(move |mut w| {
+                write!(w, "expected {}, found {:?}", ex, found)
+            }),
+            Error::MissingSetField(id) => err!(move |mut w| {
+                write!(w, "set has no field `{}`", self.interner.get(id))
+            }),
+            Error::MissingListField(id) => err!(move |mut w| {
+                write!(w, "list has no field `{}`", id)
+            }),
+            Error::CannotStringify(ex) => err!(move |mut w| {
+                write!(w, "cannot stringify this expression: {:?}", ex.val)
+            }),
+            Error::InfiniteRecursion => err!(move |mut w| {
+                write!(w, "infinite recursion")
+            }),
+            Error::OutOfBounds => err!(move |mut w| {
+                write!(w, "out of bounds")
+            }),
+            Error::LexerEof => err!(move |mut w| {
+                write!(w, "expected token, found end-of-file")
+            }),
+            Error::OverflowingLiteral => err!(move |mut w| {
+                write!(w, "overflowing literal")
+            }),
+            Error::InvalidCodepoint => err!(move |mut w| {
+                write!(w, "invalid codepoint")
+            }),
+            Error::UnknownEscapeSequence(c) => err!(move |mut w| {
+                write!(w, "unknown escape sequence: {:?}", c)
+            }),
+            Error::ExpectedEof => err!(move |mut w| {
+                write!(w, "expected end-of-file")
+            }),
+            Error::SetHasNoField(id) => err!(move |mut w| {
+                write!(w, "set has no field `{}`", self.interner.get(id))
+            }),
+            Error::ListHasNoField(id) => err!(move |mut w| {
+                write!(w, "list has no field `{}`", id)
+            }),
+            Error::FnPattern(_) => err!(move |mut w| {
+                write!(w, "argument does not match function pattern")
+            }),
+            Error::FnMissingField(id) => err!(move |mut w| {
+                write!(w, "missing field: `{}`", self.interner.get(id))
+            }),
+            Error::DupSetField(span) => {
+                err!(move |mut w| {
+                    write!(w, "duplicate set field")
+                });
+                self.common(span, Color::Cyan, "note: ", move |mut w| {
+                    write!(w, "previous declaration")
+                });
+            },
+            Error::AssertionFailed => err!(move |mut w| {
+                write!(w, "assertion failed")
+            }),
+            Error::InteriorNull => err!(move |mut w| {
+                write!(w, "string has interior null")
+            }),
+        }
     }
 
-    fn notice<F>(&self, span: Span, f: F)
-        where F: FnOnce(&mut Write) -> Result,
-    {
-        self.common(span, f, Color::Cyan, "note: ");
+    fn notice(&self, span: Span, notice: Notice) {
+        self.common(span, Color::Cyan, "note: ", |mut w| {
+            match notice {
+                Notice::Via => {
+                    write!(w, "via")
+                },
+            }
+        })
     }
 }
 
@@ -281,23 +364,26 @@ macro_rules! bispan {
     ($e:expr) => { Spanned::new(Span::built_in(), $e) }
 }
 
-pub fn std(interner: &Interner, cfgs: &[Interned], path: &[Interned]) -> SExpr {
-    let mut fields = Vec::new();
+pub fn std<D>(eval: Rc<Eval<D>>, interner: &Interner, cfgs: &[Interned],
+              path: &[Interned]) -> Result<SExpr>
+    where D: Diagnostic + 'static,
+{
+    let mut fields = HashMap::new().unwrap();
 
     macro_rules! add_fn {
-        ($func:expr, $name:expr) => {{
-            let func = bispan!(Expr::new(Expr_::Fn(FnType::BuiltIn($func))));
-            let func_ident = bispan!(interner.insert($name.to_owned().unwrap()));
-            fields.push((func_ident, func));
+        ($func:ident) => {{
+            let func = try!(lrsb_funcs::$func(eval.clone()));
+            let func = bispan!(Expr::new(Expr_::Fn(FnType::BuiltIn(func))));
+            let func_ident = interner.insert(stringify!($func)
+                                                     .to_owned().unwrap().into());
+            fields.set(func_ident, (Span::built_in(), func));
         }}
     }
 
-    add_fn!(BuiltInFn::ToList, b"to_list");
-    add_fn!(BuiltInFn::GetField(None), b"get_field");
-    add_fn!(BuiltInFn::TryGetField(None), b"try_get_field");
-    add_fn!(BuiltInFn::Assert(None), b"assert");
-    add_fn!(BuiltInFn::Contains(None), b"contains");
-    add_fn!(BuiltInFn::Filter(None), b"filter");
+    add_fn!(to_list);
+    add_fn!(assert);
+    add_fn!(contains);
+    add_fn!(filter);
 
     {
         let mut els = vec!();
@@ -306,8 +392,8 @@ pub fn std(interner: &Interner, cfgs: &[Interned], path: &[Interned]) -> SExpr {
             els.push(e);
         }
         let list = bispan!(Expr::new(Expr_::List(Rc::new().unwrap().set(els))));
-        let ident = bispan!(interner.insert(b"cfgs".to_owned().unwrap()));
-        fields.push((ident, list))
+        let ident = interner.insert(b"cfgs".to_owned().unwrap());
+        fields.set(ident, (Span::built_in(), list));
     }
 
     {
@@ -317,14 +403,16 @@ pub fn std(interner: &Interner, cfgs: &[Interned], path: &[Interned]) -> SExpr {
             els.push(e);
         }
         let list = bispan!(Expr::new(Expr_::List(Rc::new().unwrap().set(els))));
-        let ident = bispan!(interner.insert(b"path".to_owned().unwrap()));
-        fields.push((ident, list))
+        let ident = interner.insert(b"path".to_owned().unwrap());
+        fields.set(ident, (Span::built_in(), list));
     }
 
-    bispan!(Expr::new(Expr_::Set(Rc::new().unwrap().set(fields))))
+    Ok(bispan!(Expr::new(Expr_::Set(Rc::new().unwrap().set(fields), false))))
 }
 
-pub fn std_apl(expr: SExpr, interner: &Interner, cfgs: &[Interned],
-               path: &[Interned]) -> SExpr {
-    bispan!(Expr::new(Expr_::Apl(expr, std(interner, cfgs, path))))
+pub fn std_apl<D>(expr: SExpr, eval: Rc<Eval<D>>, interner: &Interner, cfgs: &[Interned],
+                  path: &[Interned]) -> Result<SExpr>
+    where D: Diagnostic + 'static,
+{
+    Ok(bispan!(Expr::new(Expr_::Apl(expr, try!(std(eval, interner, cfgs, path))))))
 }

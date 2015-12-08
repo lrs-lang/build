@@ -7,10 +7,26 @@ use std::fmt::{Debug, Write};
 use interner::{Interned};
 use span::{Spanned};
 
+/// A token with a span.
 pub type SToken = Spanned<Token>;
 
+/// A token produced by the lexer.
 #[derive(Copy, Eq)]
 pub enum Token {
+    /// A non-terminating part of a string that contains an expression interpolation.
+    ///
+    /// = Remarks
+    ///
+    /// This looks like this in the source code:
+    ///
+    ///           "aaaaaaaaaaaa\{e1}bbbbbbbbb\{e2}cccccccc"
+    ///           \____   ____/     \__   __/     \__   __/
+    ///                \ /             \ /           \ /
+    ///             StringPart      StringPart      String
+    ///
+    /// When the parser gets a `StringPart` from the lexer, it parses a single expression
+    /// (`e1` or `e2` above), eats a `}`, and then tells the lexer to continue parsing the
+    /// string.
     StringPart(Interned),
     String(Interned),
 
@@ -54,13 +70,31 @@ pub enum Token {
     Div,
     Not,
     Mod,
+    /// `\\`
     Overlay,
     AndAnd,
     OrOr,
+    /// `->`
     Implies,
 }
 
 impl Token {
+    /// Returns whether this token starts an expression.
+    ///
+    /// = Remarks
+    ///
+    /// We use this to find out if an expression has just ended. If a token does not start
+    /// an expression, then it combines a subsequent token with the current expression.
+    /// E.g., in
+    ///
+    ///        1 + 1
+    ///
+    /// the `+` does not start a new expression. However, in
+    ///
+    ///        f x + 1
+    ///
+    /// the `x` (an identifier) starts a new expressiond and this will be parsed as a
+    /// function application: `f(x + 1)`.
     pub fn starts_expr(self) -> bool {
         match self {
             Token::StringPart(..) => true,

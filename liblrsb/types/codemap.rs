@@ -8,15 +8,28 @@ use std::util::{memchr};
 
 use span::{Span};
 
+/// A codemap.
+///
+/// = Remarks
+///
+/// This type is used to map spans to source code lines.
 pub struct Codemap {
     files: Vec<Filemap>,
 }
 
 impl Codemap {
+    /// Creates a new, empty codemap.
     pub fn new() -> Codemap {
         Codemap { files: Vec::new() }
     }
 
+    /// Adds a file to the codemap.
+    ///
+    /// [argument, name]
+    /// The name of the file.
+    ///
+    /// [argument, src]
+    /// The contents of the file.
     pub fn add_file(&mut self, name: NoNullString, src: Rc<Vec<u8>>) {
         let mut cur_pos = match self.files.last() {
             Some(f) => *f.lines.last().unwrap(),
@@ -44,6 +57,7 @@ impl Codemap {
         self.files.push(map);
     }
 
+    /// Retrieves the file associated with a span.
     pub fn file(&self, span: Span) -> &Filemap {
         for file in &self.files {
             if file.lines[file.lines.len()-1] > span.lo {
@@ -54,17 +68,25 @@ impl Codemap {
     }
 }
 
+/// A file map.
+///
+/// = Remarks
+///
+/// This is where the real work happens.
 pub struct Filemap {
     file: NoNullString,
     src: Rc<Vec<u8>>,
+    /// Contains at index `i` the byte that starts line `i+1`.
     lines: Vec<u32>,
 }
 
 impl Filemap {
+    /// Returns the name of the file represented by this map.
     pub fn file(&self) -> &NoNullStr {
         &self.file
     }
 
+    /// Returns an iterator over the lines crossed by a span.
     pub fn lines<'a>(&'a self, span: Span) -> LineIter {
         let start = match self.lines.find_binary(|&l| l.cmp(&span.lo)) {
             (Some(l), _) => l,
@@ -81,6 +103,7 @@ impl Filemap {
     }
 }
 
+/// An iterator over file lines.
 pub struct LineIter<'a> {
     src: &'a Filemap,
     start: usize,
@@ -90,24 +113,29 @@ pub struct LineIter<'a> {
 }
 
 impl<'a> LineIter<'a> {
+    /// The number of lines.
     pub fn len(&self) -> usize {
         self.end - self.start
     }
 
+    /// The first line.
     pub fn start(&self) -> usize {
-        self.start
+        self.start + 1
     }
 
-    pub fn last(&self )-> usize {
-        self.end - 1
+    /// The last line.
+    pub fn last(&self) -> usize {
+        self.end
     }
 
+    /// The column of the first byte in the span.
     pub fn start_idx(&self) -> u32 {
         self.start_idx
     }
 
+    /// The column of the last byte in the span.
     pub fn last_idx(&self) -> u32 {
-        self.end_idx
+        self.end_idx - 1
     }
 }
 

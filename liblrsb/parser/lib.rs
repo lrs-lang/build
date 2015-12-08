@@ -10,9 +10,10 @@ extern crate lrsb_lexer as lexer;
 
 use std::{error};
 use std::rc::{Rc};
+use std::hashmap::{HashMap, Entry};
 
 use lexer::{Lexer};
-use types::diagnostic::{Diagnostic};
+use types::diagnostic::{Diagnostic, Error};
 use types::interner::{Interned};
 use types::tree::{Expr, Expr_, SExpr, FnArg, Selector, FnType};
 use types::token::{Token};
@@ -49,9 +50,7 @@ impl<D: Diagnostic> Parser<D> {
     pub fn parse(&mut self) -> Result<SExpr> {
         let expr = try!(self.parse_expr());
         if let Some(t) = try!(self.lexer.try_next()) {
-            self.diagnostic.error(t.span , |mut w| {
-                write!(w, "expected end-of-file, found `{:?}`", t.val)
-            });
+            self.diagnostic.error(t.span , Error::FoundToken("end-of-file", t));
             return Err(error::InvalidSequence);
         }
         Ok(expr)
@@ -100,7 +99,7 @@ impl<D: Diagnostic> Parser<D> {
                     Token::Unequal      => Op::Ne,
                     Token::Overlay      => Op::Overlay,
                     Token::Plus         => Op::Add,
-                    Token::Minus        => Op::Min,
+                    Token::Minus        => Op::Sub,
                     Token::Times        => Op::Mul,
                     Token::Div          => Op::Div,
                     Token::Mod          => Op::Mod,
@@ -127,7 +126,7 @@ impl<D: Diagnostic> Parser<D> {
                     stack.next_op(op);
                     let expr = stack.pop_expr();
                     let path = try!(self.parse_attr_path());
-                    let span = Span::new(expr.span.lo, path.last().unwrap().span.hi);
+                    let span = Span::new(expr.span.lo, path.span.hi);
                     let expr = Spanned::new(span, Expr::new(Expr_::Test(expr, path)));
                     stack.push_expr(expr);
                 } else if op == Op::Select {
@@ -152,7 +151,7 @@ impl<D: Diagnostic> Parser<D> {
                             let alt = try!(self.parse_expr());
                             (alt.span.hi, Some(alt))
                         },
-                        _ => (path.last().unwrap().span.hi, None),
+                        _ => (path.span.hi, None),
                     };
                     let span = Span::new(expr.span.lo, hi);
                     let expr = Expr_::Select(expr, path, alt);
@@ -195,9 +194,7 @@ impl<D: Diagnostic> Parser<D> {
         let token = try!(self.lexer.peek(0));
 
         if !token.val.starts_expr() {
-            self.diagnostic.error(token.span , |mut w| {
-                write!(w, "expected expression, found `{:?}`", token.val)
-            });
+            self.diagnostic.error(token.span , Error::FoundToken("expression", token));
             return Err(error::InvalidSequence);
         }
 
@@ -287,15 +284,13 @@ impl<D: Diagnostic> Parser<D> {
         Ok(expr)
     }
 
-    fn parse_selector(&mut self) -> Result<Spanned<Selector>> {
+    fn parse_selector(&mut self) -> Result<SExpr> {
         let next = try!(self.lexer.next());
         let sel = match next.val {
             Token::Ident(i) => Selector::Ident(i),
             Token::Integer(i) => {
                 if (isize::max() as i64) < i {
-                    self.diagnostic.error(next.span , |mut w| {
-                        write!(w, "out of bounds")
-                    });
+                    self.diagnostic.error(next.span , Error::OutOfBounds);
                     return Err(error::InvalidSequence);
                 }
                 Selector::Integer(i as usize)
@@ -306,14 +301,13 @@ impl<D: Diagnostic> Parser<D> {
                 Selector::Expr(expr)
             }
             _ => {
-                self.diagnostic.error(next.span , |mut w| {
-                    write!(w, "expected Integer, Identifier, or `(`, found {:?}",
-                           next.val)
-                });
+                self.diagnostic.error(next.span,
+                                      Error::FoundToken("Integer, Identifier, or `(`",
+                                                        next));
                 return Err(error::InvalidSequence);
             },
         };
-        Ok(Spanned::new(next.span, sel))
+        Ok(Spanned::new(next.span, Expr::new(Expr_::Selector(sel))))
     }
 
     /// Parses an attribute path.
@@ -325,7 +319,7 @@ impl<D: Diagnostic> Parser<D> {
     /// ----
     /// i1.i2.i3
     /// ----
-    fn parse_attr_path(&mut self) -> Result<Rc<Vec<Spanned<Selector>>>> {
+    fn parse_attr_path(&mut self) -> Result<SExpr> {
         let mut path = Vec::new();
         path.push(try!(self.parse_selector()));
         loop {
@@ -340,7 +334,9 @@ impl<D: Diagnostic> Parser<D> {
             path.push(try!(self.parse_selector()));
         }
         path.shrink_to_fit();
-        Ok(Rc::new().unwrap().set(path))
+        let span = Span::new(path[0].span.lo, path.last().unwrap().span.hi);
+        let expr = Expr_::Path(Rc::new().unwrap().set(path));
+        Ok(Spanned::new(span, Expr::new(expr)))
     }
 
     /// Parses a function.
@@ -397,9 +393,8 @@ impl<D: Diagnostic> Parser<D> {
                 return Ok(Spanned::new(span, Expr::new(expr)));
             }
 
-            self.diagnostic.error(second.span , |mut w| {
-                write!(w, "expected `:` or `@`, found `{:?}`", second.span)
-            });
+            self.diagnostic.error(second.span,
+                                  Error::FoundToken("`:` or `@`, found `{:?}`", second));
             return Err(error::InvalidSequence);
         }
 
@@ -432,18 +427,18 @@ impl<D: Diagnostic> Parser<D> {
     /// { i1 ? e1, i2 ? e2, .. }
     /// ----
     fn parse_fn_pat(&mut self) ->
-        Result<(Span, Rc<Vec<(Spanned<Interned>, Option<SExpr>)>>, bool)>
+        Result<(Span, Rc<HashMap<Interned, (Span, Option<SExpr>)>>, bool)>
     {
         let opening = self.lexer.next().unwrap();
-        let mut vars = Vec::new();
+        let mut vars = try!(HashMap::<_, (Span, _)>::new());
         let mut wild = false;
 
         loop {
             let ident = try!(self.lexer.peek(0));
-            let ident = match ident.val {
+            let (ident, span) = match ident.val {
                 Token::Ident(i) => {
                     self.lexer.next();
-                    Spanned::new(ident.span, i)
+                    (i, ident.span)
                 },
                 Token::DotDot => {
                     self.lexer.next();
@@ -451,9 +446,8 @@ impl<D: Diagnostic> Parser<D> {
                     break;
                 },
                 _ => {
-                    self.diagnostic.error(ident.span , |mut w| {
-                        write!(w, "expected ident or `..`, found `{:?}`", ident.val)
-                    });
+                    self.diagnostic.error(ident.span,
+                                          Error::FoundToken("ident or `..`", ident));
                     return Err(error::InvalidSequence);
                 },
             };
@@ -467,24 +461,29 @@ impl<D: Diagnostic> Parser<D> {
                 _ => None,
             };
 
-            vars.push((ident, alt));
+            match try!(vars.entry(&ident)) {
+                Entry::Occupied(e) => {
+                    self.diagnostic.error(span, Error::DupSetField(e.0));
+                    return Err(error::InvalidSequence);
+                },
+                Entry::Vacant(e) => e.set(ident, (span, alt)),
+            };
 
             let next = try!(self.lexer.peek(0));
             match next.val {
                 Token::Comma => self.lexer.next(),
                 Token::RightBrace => break,
                 _ => {
-                    self.diagnostic.error(next.span , |mut w| {
-                        write!(w, "expected `,` or `}}`, found `{:?}`", next.val)
-                    });
+                    self.diagnostic.error(next.span,
+                                          Error::FoundToken("`,` or `}}`", next));
                     return Err(error::InvalidSequence);
                 },
             };
         }
 
+        try!(vars.shrink_to_fit());
         let closing = try!(self.lexer.next_right_brace());
         let span = Span::new(opening.span.lo, closing.span.hi);
-        vars.shrink_to_fit();
         Ok((span, Rc::new().unwrap().set(vars), wild))
     }
 
@@ -532,21 +531,27 @@ impl<D: Diagnostic> Parser<D> {
     /// ----
     fn parse_let(&mut self) -> Result<SExpr> {
         let let_ = self.lexer.next().unwrap();
-        let mut bindings = Vec::new();
+        let mut bindings = try!(HashMap::<_, (Span, _)>::new());
         loop {
             if try!(self.lexer.peek(0)).val == Token::In {
                 self.lexer.next();
                 break;
             }
-            let (_, name) = try!(self.lexer.next_ident());
+            let (span, name) = try!(self.lexer.next_ident());
             try!(self.lexer.next_assign());
             let expr = try!(self.parse_expr());
             try!(self.lexer.next_semicolon());
-            bindings.push((name, expr));
+            match try!(bindings.entry(&name)) {
+                Entry::Occupied(e) => {
+                    self.diagnostic.error(span.span, Error::DupSetField(e.0));
+                    return Err(error::InvalidSequence);
+                },
+                Entry::Vacant(e) => e.set(name, (span.span, expr)),
+            };
         }
+        try!(bindings.shrink_to_fit());
         let expr = try!(self.parse_expr());
         let span = Span::new(let_.span.lo, expr.span.hi);
-        bindings.shrink_to_fit();
         let expr = Expr_::Let(Rc::new().unwrap().set(bindings), expr);
         Ok(Spanned::new(span, Expr::new(expr)))
     }
@@ -608,9 +613,8 @@ impl<D: Diagnostic> Parser<D> {
                 Token::Comma => self.lexer.next(),
                 Token::RightBracket => break,
                 _ => {
-                    self.diagnostic.error(next.span , |mut w| {
-                        write!(w, "expected `,` or `]`, found `{:?}`", next.val)
-                    });
+                    self.diagnostic.error(next.span,
+                                          Error::FoundToken("`,` or `]`", next));
                     return Err(error::InvalidSequence);
                 },
             };
@@ -647,7 +651,7 @@ impl<D: Diagnostic> Parser<D> {
             },
             _ => false
         };
-        let mut fields = Vec::new();
+        let mut fields = try!(HashMap::<_, (Span, _)>::new());
         loop {
             if try!(self.lexer.peek(0)).val == Token::RightBrace {
                 break;
@@ -658,7 +662,13 @@ impl<D: Diagnostic> Parser<D> {
                 Token::Ident(ident) => {
                     try!(self.lexer.next_assign());
                     let expr = try!(self.parse_expr());
-                    fields.push((Spanned::new(next.span, ident), expr));
+                    match try!(fields.entry(&ident)) {
+                        Entry::Occupied(e) => {
+                            self.diagnostic.error(next.span, Error::DupSetField(e.0));
+                            return Err(error::InvalidSequence);
+                        },
+                        Entry::Vacant(e) => e.set(ident, (next.span, expr)),
+                    };
                 },
                 Token::Inherit => {
                     loop {
@@ -667,23 +677,31 @@ impl<D: Diagnostic> Parser<D> {
                             Token::Comma | Token::RightBrace => break,
                             Token::Ident(ident) => {
                                 self.lexer.next();
-                                let e = Spanned::new(next.span, Expr::new(Expr_::Dummy));
-                                fields.push((Spanned::new(next.span, ident), e));
+                                match try!(fields.entry(&ident)) {
+                                    Entry::Occupied(e) => {
+                                        self.diagnostic.error(next.span,
+                                                              Error::DupSetField(e.0));
+                                        return Err(error::InvalidSequence);
+                                    },
+                                    Entry::Vacant(e) => {
+                                        let ex = Spanned::new(next.span,
+                                                              Expr::new(Expr_::Inherit));
+                                        e.set(ident, (next.span, ex));
+                                    },
+                                };
                             },
                             _ => {
-                                self.diagnostic.error(next.span , |mut w| {
-                                    write!(w, "expected Ident or `,` or `}}`, found `{:?}`",
-                                           next.val)
-                                });
+                                self.diagnostic.error(next.span,
+                                                      Error::FoundToken("Ident or `,` or `}}`",
+                                                                         next));
                                 return Err(error::InvalidSequence);
                             },
                         }
                     }
                 },
                 _ => {
-                    self.diagnostic.error(next.span , |mut w| {
-                        write!(w, "expected Ident or `inherit`, found `{:?}`", next.val)
-                    });
+                    self.diagnostic.error(next.span, Error::FoundToken("`inherit`",
+                                                                       next));
                     return Err(error::InvalidSequence);
                 },
             }
@@ -693,16 +711,16 @@ impl<D: Diagnostic> Parser<D> {
                 Token::Comma => self.lexer.next(),
                 Token::RightBrace => break,
                 _ => {
-                    self.diagnostic.error(next.span , |mut w| {
-                        write!(w, "expected `,` or `}}`, found `{:?}`", next.val)
-                    });
+                    self.diagnostic.error(next.span,
+                                          Error::FoundToken("expected `,` or `}}`",
+                                                            next));
                     return Err(error::InvalidSequence);
                 },
             };
         }
         let closing = try!(self.lexer.next_right_brace());
         let span = Span::new(opening.span.lo, closing.span.hi);
-        fields.shrink_to_fit();
-        Ok(Spanned::new(span, Expr::new(Expr_::PreSet(Rc::new().unwrap().set(fields), rec))))
+        try!(fields.shrink_to_fit());
+        Ok(Spanned::new(span, Expr::new(Expr_::Set(Rc::new().unwrap().set(fields), rec))))
     }
 }

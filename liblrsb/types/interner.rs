@@ -9,6 +9,7 @@ use std::share::{Cell};
 use std::string::{AsByteStr, ByteStr};
 use std::hash::{Hash, Hasher};
 
+/// A string interned in an interned.
 #[derive(Copy, Eq)]
 pub struct Interned(u32);
 
@@ -34,13 +35,14 @@ struct Inner {
 ///
 /// = Remarks
 ///
-/// This interner takes ownership of strings and will them only destroy when itself is
-/// destroyed.
+/// This interner takes ownership of strings and will them destroy only when it's getting
+/// destroyed itself.
 pub struct Interner {
     data: Cell<Inner>,
 }
 
 impl Interner {
+    /// Creates a new interner.
     pub fn new() -> Interner {
         Interner {
             data: Cell::new(Inner {
@@ -54,6 +56,13 @@ impl Interner {
         unsafe { &mut *self.data.ptr() }
     }
 
+    /// Inserts a string into an interner.
+    ///
+    /// [argument, val]
+    /// The string to insert.
+    ///
+    /// [return_value]
+    /// Returns the interned string.
     pub fn insert(&self, val: Vec<u8>) -> Interned {
         let inner = self.inner();
         let pos = {
@@ -71,6 +80,10 @@ impl Interner {
         Interned(pos as u32)
     }
 
+    /// Looks up the contents of an interned string.
+    ///
+    /// [argument, i]
+    /// The interned string.
     pub fn get(&self, i: Interned) -> &ByteStr {
         let inner = self.inner();
         let i = i.0 as usize;
@@ -78,6 +91,17 @@ impl Interner {
         inner.strings[i].as_byte_str()
     }
 
+    /// Concatenates two interned strings.
+    ///
+    /// [argument, left]
+    /// The left part.
+    ///
+    /// [argument, right]
+    /// The right part.
+    ///
+    /// [return_value]
+    /// Returns a new interned string whose content is the concatenation of the contents
+    /// of the left and right parts.
     pub fn concat(&self, left: Interned, right: Interned) -> Interned {
         let tmp: &[u8] = self.get(left).as_ref();
         let mut l = tmp.to_owned().unwrap();

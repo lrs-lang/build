@@ -13,7 +13,7 @@ use std::ringbuf::{DynRingBuf};
 use std::{error};
 use std::parse::{Parsable, HexU32};
 
-use types::diagnostic::{Diagnostic};
+use types::diagnostic::{Diagnostic, Error};
 use types::token::{SToken, Token};
 use types::span::{Span, Spanned};
 use types::interner::{Interner, Interned};
@@ -85,10 +85,7 @@ macro_rules! next_t {
         match try!($slf.next()) {
             t @ Spanned { val: $pat, .. } => Ok(t),
             t => {
-                $slf.diagnostic.error(
-                    t.span,
-                    |mut w| write!(w, "expected {}, found `{:?}`", $name, t.val)
-                );
+                $slf.diagnostic.error(t.span, Error::FoundToken($name, t));
                 Err(error::InvalidSequence)
             },
         }
@@ -139,10 +136,8 @@ impl<D: Diagnostic> Lexer<D> {
     }
 
     fn unexpected_eof<T>(&self) -> Result<T> {
-        self.diagnostic.error(Span {
-            lo: self.pos(),
-            hi: self.pos(),
-        }, |mut w| write!(w, "expected token, found end-of-file"));
+        self.diagnostic.error(Span { lo: self.pos(), hi: self.pos() },
+                              Error::FoundString("token", "end-of-file"));
         Err(error::InvalidSequence)
     }
 
@@ -170,10 +165,7 @@ impl<D: Diagnostic> Lexer<D> {
         match t.val {
             Token::Ident(id) => Ok((t, id)),
             _ => {
-                self.diagnostic.error(
-                    t.span,
-                    |mut w| write!(w, "expected ident, found `{:?}`", t.val)
-                );
+                self.diagnostic.error(t.span, Error::FoundToken("ident", t));
                 Err(error::InvalidSequence)
             },
         }
@@ -365,10 +357,8 @@ impl<D: Diagnostic> Lexer<D> {
             let (val, len) = i64::parse_bytes_init(self.chars.text().as_bytes()).unwrap();
             if let Some((next_pos, next)) = self.chars.peek(len) {
                 if let b'0' ... b'9' = next {
-                    self.diagnostic.error(
-                        Span::new(self.lo+cur_pos, self.lo+next_pos),
-                        |mut w| write!(w, "overflowing literal")
-                    );
+                    self.diagnostic.error(Span::new(self.lo+cur_pos, self.lo+next_pos),
+                                          Error::OverflowingLiteral);
                     return Err(error::InvalidSequence);
                 }
             }
@@ -404,13 +394,10 @@ impl<D: Diagnostic> Lexer<D> {
 
         self.diagnostic.error(
             Span::new(self.lo+cur_pos, self.lo+cur_pos+1),
-            |mut w| {
-                try!(write!(w, "expected token, found "));
-                if cur & 0x80 != 0 {
-                    write!(w, "non-ascii byte")
-                } else {
-                    write!(w, "{:?}", cur as char)
-                }
+            if cur & 0x80 != 0 {
+                Error::FoundString("token", "non-ascii byte")
+            } else {
+                Error::FoundChar("token", cur as char)
             }
         );
         Err(error::InvalidSequence)
@@ -448,10 +435,9 @@ impl<D: Diagnostic> Lexer<D> {
             let (pos, cur) = match self.chars.next() {
                 Some(c) => c,
                 _ => {
-                    self.diagnostic.error(Span {
-                        lo: self.pos(),
-                        hi: self.pos(),
-                    }, |mut w| write!(w, "expected escape sequence, found end-of-file"));
+                    self.diagnostic.error(Span { lo: self.pos(), hi: self.pos(), },
+                                          Error::FoundString("escape sequence",
+                                                             "end-of-file"));
                     return Err(error::InvalidSequence);
                 }
             };
@@ -466,10 +452,8 @@ impl<D: Diagnostic> Lexer<D> {
                     let (val, len) = try!(HexU32::parse_bytes_init(
                                                     self.chars.text().as_bytes()));
                     if len == 0 {
-                        self.diagnostic.error(Span {
-                            lo: self.pos(),
-                            hi: self.pos()+1,
-                        }, |mut w| write!(w, "expected codepoint"));
+                        self.diagnostic.error(Span { lo: self.pos(), hi: self.pos()+1, },
+                                              Error::FoundString("codepoint", "?"));
                         return Err(error::InvalidSequence);
                     }
                     for _ in 0..len { self.chars.next(); }
@@ -478,10 +462,8 @@ impl<D: Diagnostic> Lexer<D> {
                     let chr = match char::from_u32(val.0) {
                         Some(c) => c,
                         _ => {
-                            self.diagnostic.error(Span {
-                                lo: before,
-                                hi: after,
-                            }, |mut w| write!(w, "invalid codepoint\n"));
+                            self.diagnostic.error(Span { lo: before, hi: after, },
+                                                  Error::InvalidCodepoint);
                             return Err(error::InvalidSequence);
                         },
                     };
@@ -495,10 +477,8 @@ impl<D: Diagnostic> Lexer<D> {
                     return Ok(Some(Spanned::new(span, Token::StringPart(id))));
                 },
                 _ => {
-                    self.diagnostic.error(Span {
-                        lo: self.lo+pos,
-                        hi: self.pos()
-                    }, |mut w| write!(w, "unknown escape sequence: {:?}", cur));
+                    self.diagnostic.error(Span { lo: self.lo+pos, hi: self.pos() },
+                                          Error::UnknownEscapeSequence(cur));
                     return Err(error::InvalidSequence);
                 },
             }

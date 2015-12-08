@@ -8,6 +8,7 @@ extern crate lrsb_types;
 extern crate lrsb_lexer;
 extern crate lrsb_parser;
 extern crate lrsb_eval;
+extern crate lrsb_funcs;
 
 use std::file::{self, File};
 use std::file::mode::{MODE_DIRECTORY};
@@ -287,7 +288,7 @@ impl Task {
 /// The function that calls `lrsc` and waits for it to exit.
 fn build_thread(requests: &Queue<Task>, results: &Queue<Task>, config: &Config) {
     let mut args: CPtrPtr = CPtrPtr::new().unwrap();
-    let obj_path: Vec<u8> = format!("obj/{}", config.target).unwrap();
+    let obj_path: Vec<u8> = format!("obj/{}", config.target).into();
 
     loop {
         let mut task = requests.pop_wait();
@@ -381,7 +382,7 @@ fn parse_args() -> Args {
 
     let mut getopts = Getopt::new(args, params);
     for (arg, param) in &mut getopts {
-        match <AsRef<[u8]>>::as_ref(&arg) { // arg.as_ref():&[u8] ???
+        match AsRef::<[u8]>::as_ref(arg) {
             b"r" | b"rebuild" => rebuild = true,
             b"t" | b"target" => target = match short_target_to_target(param.unwrap()) {
                 Some(t) => t,

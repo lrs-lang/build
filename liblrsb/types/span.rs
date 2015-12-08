@@ -5,7 +5,9 @@
 use std::ops::{Deref, DerefMut};
 use std::fmt::{Debug, Write};
 use std::clone::{MaybeClone};
+use std::hash::{Hash, Hasher};
 
+/// A span in a codemap.
 #[derive(Copy, Eq)]
 pub struct Span {
     pub lo: u32,
@@ -13,6 +15,7 @@ pub struct Span {
 }
 
 impl Span {
+    /// Creates a new span.
     pub fn new(lo: u32, hi: u32) -> Span {
         Span {
             lo: lo,
@@ -20,6 +23,11 @@ impl Span {
         }
     }
 
+    /// Creates a span that is associated with a location built into the compiler.
+    ///
+    /// = Remarks
+    ///
+    /// This span will be printed as `<built-in>` in diagnostic messages.
     pub fn built_in() -> Span {
         Span::new(!0, !0)
     }
@@ -31,10 +39,17 @@ impl Debug for Span {
     }
 }
 
-#[derive(Copy)]
+/// An object with a span.
+#[derive(Copy, Eq)]
 pub struct Spanned<T> {
     pub span: Span,
     pub val: T,
+}
+
+impl<T: Hash> Hash for Spanned<T> {
+    fn stateful_hash<H: Hasher>(&self, h: &mut H) {
+        self.val.stateful_hash(h);
+    }
 }
 
 impl<T: Clone> Clone for Spanned<T> {
@@ -62,6 +77,7 @@ impl<T: Debug> Debug for Spanned<T> {
 }
 
 impl<T> Spanned<T> {
+    /// Creates a new spanned elment.
     pub fn new(span: Span, val: T) -> Spanned<T> {
         Spanned {
             span: span,
