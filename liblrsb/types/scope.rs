@@ -34,11 +34,11 @@ use interner::{Interned};
 /// bound identifiers. When we encounter the inner `let`, we add `x` to the set of unbound
 /// identifiers so that we don't accidentally substitute the outer `x` inside the inner
 /// `let`'s body.
-pub struct Scope<T: Clone> {
+pub struct Scope<T: To> {
     names: HashMap<Interned, Vec<Option<T>>>,
 }
 
-impl<T: Clone> Scope<T> {
+impl<T: To> Scope<T> {
     /// Creates a new scope.
     pub fn new() -> Scope<T> {
         Scope {
@@ -82,13 +82,13 @@ impl<T: Clone> Scope<T> {
     /// Returns the value associated with an identifier at the innermost scope, if any.
     pub fn get(&self, name: Interned) -> Option<T> {
         match self.names.get(&name) {
-            Some(v) => v.last().map(|t| t.clone()).unwrap(),
+            Some(v) => v.last().map(|t| t.to()).unwrap(),
             _ => None,
         }
     }
 }
 
-impl<T: Clone+Debug> Debug for Scope<T> {
+impl<T: To+Debug> Debug for Scope<T> {
     fn fmt<W: Write>(&self, mut w: &mut W) -> Result {
         write!(w, "Scope {{ names: {:?} }}", self.names)
     }

@@ -32,15 +32,15 @@ pub fn parse(build_path: &NoNullStr, original: &NoNullStr, cfgs: &[&CStr],
         let mut path = try!(build_path.to_owned());
         try!(path.push_file("LRSBuild"));
         let mut map = Codemap::new();
-        map.add_file(path, input.clone());
+        map.add_file(path, input.to());
         try!(Rc::new()).set(RefCell::new(map))
     };
-    let diag = try!(Rc::new()).set(FdDiag::new(map.clone(), interner.clone(), STDERR));
+    let diag = try!(Rc::new()).set(FdDiag::new(map.to(), interner.to(), STDERR));
 
     let tree = {
-        let lexer = Lexer::new(0, input.clone(), diag.clone(), interner.clone(),
+        let lexer = Lexer::new(0, input.to(), diag.to(), interner.to(),
                                try!(build_path.to_owned()));
-        let mut parser = Parser::new(lexer, diag.clone());
+        let mut parser = Parser::new(lexer, diag.to());
         try!(parser.parse())
     };
 
@@ -64,9 +64,9 @@ pub fn parse(build_path: &NoNullStr, original: &NoNullStr, cfgs: &[&CStr],
         p
     };
 
-    let eval = Rc::new().unwrap().set(Eval::new(diag.clone(), interner.clone()));
+    let eval = Rc::new().unwrap().set(Eval::new(diag.to(), interner.to()));
 
-    let expr = try!(std_apl(tree, eval.clone(), &interner, &cfgs, &path));
+    let expr = try!(std_apl(tree, eval.to(), &interner, &cfgs, &path));
 
     flatten(&eval, expr, &diag, &interner)
 }
@@ -149,11 +149,11 @@ fn get_target<D>(eval: &Eval<D>, target: &SExpr, diag: &D, interner: &Interner,
         for dep in &deps {
             let dep = try!(eval.resolve(dep));
             let addr = mem::addr::<RefCell<_>>(&dep.val.val);
-            let obj = if let Some(res) = map.get(&addr).map(|d| d.clone()) {
+            let obj = if let Some(res) = map.get(&addr).map(|d| d.to()) {
                 res
             } else {
                 let obj = try!(get_target(eval, &dep, diag, interner, map));
-                map.set(addr, obj.clone());
+                map.set(addr, obj.to());
                 obj
             };
             rdeps.push(obj);
@@ -372,7 +372,7 @@ pub fn std<D>(eval: Rc<Eval<D>>, interner: &Interner, cfgs: &[Interned],
 
     macro_rules! add_fn {
         ($func:ident) => {{
-            let func = try!(lrsb_funcs::$func(eval.clone()));
+            let func = try!(lrsb_funcs::$func(eval.to()));
             let func = bispan!(Expr::new(Expr_::Fn(FnType::BuiltIn(func))));
             let func_ident = interner.insert(stringify!($func)
                                                      .to_owned().unwrap().into());

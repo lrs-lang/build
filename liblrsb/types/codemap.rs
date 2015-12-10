@@ -154,8 +154,8 @@ impl<'a> Iterator for LineIter<'a> {
     }
 }
 
-impl<'a> Clone for LineIter<'a> {
-    fn clone(&self) -> Self {
+impl<'a> To for LineIter<'a> {
+    fn to(&self) -> Self {
         LineIter {
             src:       self.src,
             start:     self.start,

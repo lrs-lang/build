@@ -98,10 +98,10 @@ impl<D: Diagnostic> Eval<D> {
     pub fn resolve(&self, expr: &SExpr) -> Result<SExpr> {
         try!(self.force(expr));
 
-        let mut expr = expr.clone();
+        let mut expr = expr.to();
         loop {
             let tmp = match *expr.val.val.borrow() {
-                Expr_::Resolved(_, ref e) => e.clone(),
+                Expr_::Resolved(_, ref e) => e.to(),
                 _ => break,
             };
             expr = tmp;
@@ -213,8 +213,8 @@ impl<D: Diagnostic> Eval<D> {
             Expr_::Integer(i) => Expr_::Integer(i),
             Expr_::Bool(b) => Expr_::Bool(b),
             Expr_::Null => Expr_::Null,
-            Expr_::Resolved(id, ref dst) => Expr_::Resolved(id, dst.clone()),
-            Expr_::Fn(FnType::BuiltIn(ref f)) => Expr_::Fn(FnType::BuiltIn(f.clone())),
+            Expr_::Resolved(id, ref dst) => Expr_::Resolved(id, dst.to()),
+            Expr_::Fn(FnType::BuiltIn(ref f)) => Expr_::Fn(FnType::BuiltIn(f.to())),
             Expr_::Ident(id) =>
             {
                 match scope.get(id) {
@@ -295,7 +295,7 @@ impl<D: Diagnostic> Eval<D> {
                 if let Selector::Expr(ref e) = *s {
                     Expr_::Selector(Selector::Expr(copy!(e)))
                 } else {
-                    Expr_::Selector(s.clone())
+                    Expr_::Selector(s.to())
                 }
             }
             Expr_::Select(ref target, ref segs, ref alt) =>

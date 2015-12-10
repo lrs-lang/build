@@ -4,7 +4,6 @@
 
 use std::ops::{Deref, DerefMut};
 use std::fmt::{Debug, Write};
-use std::clone::{MaybeClone};
 use std::hash::{Hash, Hasher};
 
 /// A span in a codemap.
@@ -52,20 +51,20 @@ impl<T: Hash> Hash for Spanned<T> {
     }
 }
 
-impl<T: Clone> Clone for Spanned<T> {
-    fn clone(&self) -> Spanned<T> {
+impl<U, T: To<U>> To<Spanned<U>> for Spanned<T> {
+    fn to(&self) -> Spanned<U> {
         Spanned {
             span: self.span,
-            val: self.val.clone(),
+            val: self.val.to(),
         }
     }
 }
 
-impl<T: MaybeClone> MaybeClone for Spanned<T> {
-    fn maybe_clone(&self) -> Result<Spanned<T>> {
+impl<U, T: TryTo<U>> TryTo<Spanned<U>> for Spanned<T> {
+    fn try_to(&self) -> Result<Spanned<U>> {
         Ok(Spanned {
             span: self.span,
-            val: try!(self.val.maybe_clone()),
+            val: try!(self.val.try_to()),
         })
     }
 }

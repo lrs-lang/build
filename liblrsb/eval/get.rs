@@ -31,7 +31,7 @@ impl<D: Diagnostic> Eval<D> {
         match *val {
             Expr_::Bool(b) => Ok(b),
             _ => {
-                self.diag.error(expr.span, Error::FoundExpr("boolean", res.clone()));
+                self.diag.error(expr.span, Error::FoundExpr("boolean", res.to()));
                 self.trace(expr);
                 Err(error::InvalidSequence)
             },
@@ -44,7 +44,7 @@ impl<D: Diagnostic> Eval<D> {
         match *val {
             Expr_::String(s) => Ok(s),
             _ => {
-                self.diag.error(expr.span, Error::FoundExpr("string", res.clone()));
+                self.diag.error(expr.span, Error::FoundExpr("string", res.to()));
                 self.trace(expr);
                 Err(error::InvalidSequence)
             },
@@ -67,7 +67,7 @@ impl<D: Diagnostic> Eval<D> {
         match *val {
             Expr_::Integer(i) => Ok(i),
             _ => {
-                self.diag.error(expr.span, Error::FoundExpr("integer", res.clone()));
+                self.diag.error(expr.span, Error::FoundExpr("integer", res.to()));
                 self.trace(expr);
                 Err(error::InvalidSequence)
             },
@@ -88,9 +88,9 @@ impl<D: Diagnostic> Eval<D> {
         let res = try!(self.resolve(expr));
         let val = res.val.val.borrow();
         match *val {
-            Expr_::List(ref l) => Ok(l.clone()),
+            Expr_::List(ref l) => Ok(l.to()),
             _ => {
-                self.diag.error(expr.span, Error::FoundExpr("list", res.clone()));
+                self.diag.error(expr.span, Error::FoundExpr("list", res.to()));
                 self.trace(expr);
                 Err(error::InvalidSequence)
             },
@@ -142,13 +142,13 @@ impl<D: Diagnostic> Eval<D> {
                     },
                     _ => {
                         self.diag.error(e.span, Error::FoundExpr("integer or string",
-                                                                 expr.clone()));
+                                                                 expr.to()));
                         self.trace(e);
                         return Err(error::InvalidSequence);
                     },
                 }
             },
-            _ => selector.clone(),
+            _ => selector.to(),
         };
 
         self.get_field_(expr, &sel, out)
@@ -163,7 +163,7 @@ impl<D: Diagnostic> Eval<D> {
             return Ok(f);
         }
 
-        out.map(|o| *o = eval_sel.clone());
+        out.map(|o| *o = eval_sel.to());
 
         self.diag.error(expr.span,
             match eval_sel {
@@ -187,7 +187,7 @@ impl<D: Diagnostic> Eval<D> {
             (&Expr_::Set(ref fields, _), &Selector::Ident(name)) => {
                 for (&id, &(_, ref val)) in fields {
                     if id == name {
-                        return Ok(Some(val.clone()));
+                        return Ok(Some(val.to()));
                     }
                 }
                 out.map(|o| *o = Selector::Ident(name));
@@ -195,7 +195,7 @@ impl<D: Diagnostic> Eval<D> {
             },
             (&Expr_::List(ref fields), &Selector::Integer(i)) => {
                 if fields.len() > i {
-                    Ok(Some(fields[i].clone()))
+                    Ok(Some(fields[i].to()))
                 } else {
                     out.map(|o| *o = Selector::Integer(i));
                     Ok(None)
@@ -204,9 +204,9 @@ impl<D: Diagnostic> Eval<D> {
             _ => {
                 self.diag.error(expr.span,
                     if let &Selector::Ident(..) = sel {
-                        Error::FoundExpr("set", expr.clone())
+                        Error::FoundExpr("set", expr.to())
                     } else {
-                        Error::FoundExpr("list", expr.clone())
+                        Error::FoundExpr("list", expr.to())
                     }
                 );
                 self.trace(expr);
@@ -230,9 +230,9 @@ impl<D: Diagnostic> Eval<D> {
         let res = try!(self.resolve(expr));
         let val = res.val.val.borrow();
         match *val {
-            Expr_::Set(ref fields, _) => Ok(fields.clone()),
+            Expr_::Set(ref fields, _) => Ok(fields.to()),
             _ => {
-                self.diag.error(expr.span, Error::FoundExpr("set", res.clone()));
+                self.diag.error(expr.span, Error::FoundExpr("set", res.to()));
                 self.trace(expr);
                 Err(error::InvalidSequence)
             },
@@ -253,9 +253,9 @@ impl<D: Diagnostic> Eval<D> {
         let res = try!(self.resolve(expr));
         let val = res.val.val.borrow();
         match *val {
-            Expr_::Fn(ref f) => Ok(f.clone()),
+            Expr_::Fn(ref f) => Ok(f.to()),
             _ => {
-                self.diag.error(expr.span, Error::FoundExpr("function", res.clone()));
+                self.diag.error(expr.span, Error::FoundExpr("function", res.to()));
                 self.trace(expr);
                 Err(error::InvalidSequence)
             },
@@ -265,7 +265,7 @@ impl<D: Diagnostic> Eval<D> {
     pub fn get_path(&self, expr: &SExpr) -> Rc<Vec<SExpr>> {
         let val = expr.val.val.borrow();
         match *val {
-            Expr_::Path(ref f) => f.clone(),
+            Expr_::Path(ref f) => f.to(),
             _ => abort!(),
         }
     }
@@ -273,7 +273,7 @@ impl<D: Diagnostic> Eval<D> {
     pub fn get_selector(&self, expr: &SExpr) -> Selector {
         let val = expr.val.val.borrow();
         match *val {
-            Expr_::Selector(ref s) => s.clone(),
+            Expr_::Selector(ref s) => s.to(),
             _ => abort!(),
         }
     }

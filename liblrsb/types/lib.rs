@@ -4,6 +4,7 @@
 
 #![crate_name = "lrsb_types"]
 #![crate_type = "lib"]
+#![feature(custom_derive)]
 
 pub mod codemap;
 pub mod interner;

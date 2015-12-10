@@ -5,7 +5,6 @@
 use std::rc::{Rc};
 use std::share::{RefCellStatus};
 use std::{error};
-use std::clone::{MaybeClone};
 
 use types::diagnostic::{Diagnostic, Error};
 use types::scope::{Scope};
@@ -214,7 +213,7 @@ impl<D: Diagnostic> Eval<D> {
                 Expr_::Bool(!try!(self.get_bool(e)))
             }
             Expr_::Test(ref s, ref path) => {
-                let mut set = s.clone();
+                let mut set = s.to();
                 let mut path = &self.get_path(&path)[..];
                 let mut err_span = set.span;
                 while path.len() > 0 {
@@ -243,10 +242,10 @@ impl<D: Diagnostic> Eval<D> {
             let bottom = try!(self.get_fields(bottom));
             let top = try!(self.get_fields(top));
 
-            let mut new = try!((*bottom).maybe_clone());
+            let mut new = try!((*bottom).try_to());
 
             for (&id, &(span, ref val)) in &top {
-                new.set(id, (span, val.clone()));
+                new.set(id, (span, val.to()));
             }
 
             try!(new.shrink_to_fit());
@@ -276,16 +275,16 @@ impl<D: Diagnostic> Eval<D> {
                 Expr_::List(ref left) => {
                     let right = try!(self.get_list(r));
                     if right.len() == 0 {
-                        Expr_::List(left.clone())
+                        Expr_::List(left.to())
                     } else {
-                        let mut left = left.maybe_clone().unwrap();
+                        let mut left = try!((**left).try_to());
                         left.reserve(right.len());
-                        for el in &right { left.push(el.clone()); }
+                        for el in &right { left.push(el.to()); }
                         Expr_::List(Rc::new().unwrap().set(left))
                     }
                 },
                 _ => {
-                    self.diag.error(l.span, Error::FoundExpr("String or List", l.clone()));
+                    self.diag.error(l.span, Error::FoundExpr("String or List", l.to()));
                     self.trace(&l);
                     return Err(error::InvalidSequence);
                 },
@@ -326,7 +325,7 @@ impl<D: Diagnostic> Eval<D> {
                     if in_fn_body {
                         scope.hide(id);
                     } else {
-                        scope.bind(id, val.clone());
+                        scope.bind(id, val.to());
                     }
                 }
                 for (_, &(_, ref val)) in fields {
@@ -337,7 +336,7 @@ impl<D: Diagnostic> Eval<D> {
                     scope.pop(id);
                 }
                 if !in_fn_body {
-                    new_val = Some(Expr_::Resolved(None, body.clone()));
+                    new_val = Some(Expr_::Resolved(None, body.to()));
                 }
             }
             if let Expr_::Let(..) = *val {
@@ -357,7 +356,7 @@ impl<D: Diagnostic> Eval<D> {
                         if in_fn_body {
                             scope.hide(id);
                         } else {
-                            scope.bind(id, val.clone());
+                            scope.bind(id, val.to());
                         }
                     }
                 }
@@ -376,7 +375,7 @@ impl<D: Diagnostic> Eval<D> {
                     }
                 }
                 if !in_fn_body {
-                    new_val = Some(Expr_::Set(fields.clone(), false));
+                    new_val = Some(Expr_::Set(fields.to(), false));
                 }
             }
             if let Expr_::Set(_, true) = *val {
@@ -515,10 +514,10 @@ impl<D: Diagnostic> Eval<D> {
         let new = if let Expr_::Cond(ref cond, ref then, ref el) = *val {
             if try!(self.get_bool(cond)) {
                 try!(self.force(then));
-                then.clone()
+                then.to()
             } else {
                 try!(self.force(el));
-                el.clone()
+                el.to()
             }
         } else {
             abort!()
@@ -532,7 +531,7 @@ impl<D: Diagnostic> Eval<D> {
     fn force_stringify(&self, expr: &SExpr) -> Result {
         let mut val = expr.val.val.borrow_mut();
         let e = match *val {
-            Expr_::Stringify(ref e) => e.clone(),
+            Expr_::Stringify(ref e) => e.to(),
             _ => abort!(),
         };
         let dst = try!(self.resolve(&e));
@@ -545,7 +544,7 @@ impl<D: Diagnostic> Eval<D> {
                 *val = Expr_::String(id);
             },
             _ => {
-                self.diag.error(e.span, Error::CannotStringify(e.clone()));
+                self.diag.error(e.span, Error::CannotStringify(e.to()));
                 self.trace(&e);
                 return Err(error::InvalidSequence);
             },
@@ -555,7 +554,7 @@ impl<D: Diagnostic> Eval<D> {
 
     fn force_apl(&self, apl: &SExpr) -> Result {
         let (func, arg) = match *apl.val.val.borrow() {
-            Expr_::Apl(ref func, ref arg) => (func.clone(), arg.clone()),
+            Expr_::Apl(ref func, ref arg) => (func.to(), arg.to()),
             _ => abort!(),
         };
 
@@ -587,9 +586,9 @@ impl<D: Diagnostic> Eval<D> {
                 }
                 for (&id, &(span, ref alt)) in &*fields {
                     if let Some(&(_, ref val)) = arg_fields.get(&id) {
-                        scope.bind(id, val.clone());
+                        scope.bind(id, val.to());
                     } else if let Some(ref alt) = *alt {
-                        scope.bind(id, alt.clone());
+                        scope.bind(id, alt.to());
                     } else {
                         self.diag.error(span, Error::FnMissingField(id));
                         self.trace(&arg);
@@ -597,7 +596,7 @@ impl<D: Diagnostic> Eval<D> {
                     }
                 }
                 if let Some(at) = at {
-                    scope.bind(at.val, arg.clone());
+                    scope.bind(at.val, arg.to());
                 }
             },
         }
@@ -644,7 +643,7 @@ impl<D: Diagnostic> Eval<D> {
             let val = expr.val.val.borrow();
 
             let (mut set, path, alt) = match *val {
-                Expr_::Select(ref s, ref p, ref a) => (s.clone(), p, a.clone()),
+                Expr_::Select(ref s, ref p, ref a) => (s.to(), p, a.to()),
                 _ => abort!(),
             };
 

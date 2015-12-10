@@ -2,7 +2,7 @@
 // License, version 2.0. If a copy of the GPL was not distributed with
 // this program, You can obtain one at http://gnu.org.
 
-#![crate_name = "lrs_build"]
+#![crate_name = "lrs_build2"]
 
 extern crate lrsb_types;
 extern crate lrsb_lexer;
@@ -13,7 +13,6 @@ extern crate lrsb_funcs;
 use std::file::{self, File};
 use std::file::mode::{MODE_DIRECTORY};
 use std::time::{self, Time};
-use std::clone::{MaybeClone};
 use std::fmt::{Debug, Write};
 use std::rc::{Arc};
 use std::sync::{Queue, Mutex};
@@ -245,7 +244,7 @@ fn next_target(obj: &Arc<Mutex<Obj>>) -> Result<Arc<Mutex<Obj>>, bool> {
 fn find_conf() -> (NoNullString, NoNullString) {
     let mut path = NoNullString::new();
     tryerr!(env::get_cwd(&mut path), "Couldn't get cwd");
-    let original = tryerr!(path.maybe_clone(), "");
+    let original = tryerr!(path.try_to(), "");
 
     loop {
         path.push_file("LRSBuild");
@@ -384,9 +383,15 @@ fn parse_args() -> Args {
     for (arg, param) in &mut getopts {
         match AsRef::<[u8]>::as_ref(arg) {
             b"r" | b"rebuild" => rebuild = true,
-            b"t" | b"target" => target = match short_target_to_target(param.unwrap()) {
-                Some(t) => t,
-                _ => errexit!("invalid target: {:?}", param.unwrap()),
+            b"t" | b"target" => {
+                let param = match param {
+                    Some(p) => p,
+                    _ => errexit!("missing argument `-t`, `--target`"),
+                };
+                target = match short_target_to_target(param) {
+                    Some(t) => t,
+                    _ => errexit!("invalid target: {:?}", param),
+                };
             },
                    b"times" => times = true,
             b"f" | b"finish" => finishes = true,
@@ -456,7 +461,7 @@ fn main() {
     let mut lrsc_args = vec!();
     for cfg in &build.cfgs {
         lrsc_args.push("--cfg".as_no_null_str().unwrap().to_owned().unwrap());
-        lrsc_args.push(cfg.maybe_clone().unwrap());
+        lrsc_args.push(cfg.try_to().unwrap());
     }
     for cfg in &args.tail {
         lrsc_args.push((***cfg).to_owned().unwrap());

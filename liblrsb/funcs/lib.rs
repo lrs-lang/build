@@ -40,7 +40,7 @@ pub fn to_list<D>(eval: Rc<Eval<D>>) -> Result<Rc<BuiltInFn>>
         let fields = try!(eval.get_fields(e));
         let mut list = Vec::with_capacity(fields.size()).unwrap();
         for (_, &(_, ref val)) in &fields {
-            list.push(val.clone());
+            list.push(val.to());
         }
         Ok(Expr_::List(Rc::new().unwrap().set(list)))
     };
@@ -51,11 +51,11 @@ pub fn assert<D>(eval: Rc<Eval<D>>) -> Result<Rc<BuiltInFn>>
     where D: Diagnostic + 'static,
 {
     let f = move |cond: &SExpr| {
-        let eval = eval.clone();
-        let cond = cond.clone();
+        let eval = eval.to();
+        let cond = cond.to();
         let f = move |tail: &SExpr| {
             if try!(eval.get_bool(&cond)) {
-                Ok(Expr_::Resolved(None, tail.clone()))
+                Ok(Expr_::Resolved(None, tail.to()))
             } else {
                 eval.diag.error(cond.span, Error::AssertionFailed);
                 eval.trace(&cond);
@@ -71,8 +71,8 @@ pub fn contains<D>(eval: Rc<Eval<D>>) -> Result<Rc<BuiltInFn>>
     where D: Diagnostic + 'static,
 {
     let f = move |list: &SExpr| {
-        let eval = eval.clone();
-        let list = list.clone();
+        let eval = eval.to();
+        let list = list.to();
         let f = move |val: &SExpr| {
             let list = try!(eval.get_list(&list));
             for el in &list {
@@ -91,16 +91,16 @@ pub fn filter<D>(eval: Rc<Eval<D>>) -> Result<Rc<BuiltInFn>>
     where D: Diagnostic + 'static,
 {
     let f = move |list: &SExpr| {
-        let eval = eval.clone();
-        let olist = list.clone();
+        let eval = eval.to();
+        let olist = list.to();
         let f = move |cond: &SExpr| {
             let list = try!(eval.get_list(&olist));
             let mut nlist = try!(Vec::with_capacity(list.len()));
             for el in &list {
                 let span = Span::new(olist.span.lo, cond.span.hi);
-                let expr = Expr::new(Expr_::Apl(cond.clone(), el.clone()));
+                let expr = Expr::new(Expr_::Apl(cond.to(), el.to()));
                 if try!(eval.get_bool(&Spanned::new(span, expr))) {
-                    nlist.push(el.clone());
+                    nlist.push(el.to());
                 }
             }
             Ok(Expr_::List(Rc::new().unwrap().set(nlist)))

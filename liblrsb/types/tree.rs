@@ -6,7 +6,6 @@ use std::{mem};
 use std::rc::{Rc};
 use std::share::{RefCell};
 use std::fmt::{Debug, Write};
-use std::clone::{MaybeClone};
 use std::marker::{Leak};
 use std::hash::{Hash, Hasher};
 use std::ops::{Eq};
@@ -24,7 +23,7 @@ pub type SExpr = Spanned<Expr>;
 ///
 /// Instead of copying `Expr_`s every time they are used, we add references to them. This
 /// way we only have to evaluate each `Expr_` once.
-#[derive(Clone)]
+#[derive(To)]
 pub struct Expr {
     pub val: Rc<RefCell<Expr_>>,
 }
@@ -48,9 +47,9 @@ impl Debug for Expr {
     }
 }
 
-impl MaybeClone for Expr {
-    fn maybe_clone(&self) -> Result<Expr> {
-        Ok(Expr { val: self.val.clone() })
+impl TryTo for Expr {
+    fn try_to(&self) -> Result<Expr> {
+        Ok(Expr { val: self.val.to() })
     }
 }
 
@@ -72,7 +71,7 @@ impl Expr {
 }
 
 /// An expression.
-#[derive(Clone)]
+#[derive(To)]
 pub enum Expr_ {
     /// A dummy expression.
     ///
@@ -361,13 +360,13 @@ impl Debug for Expr_ {
     }
 }
 
-#[derive(Clone)]
+#[derive(To)]
 pub enum FnArg {
     Ident(Interned),
     Pat(Option<Spanned<Interned>>, Rc<HashMap<Interned, (Span, Option<SExpr>)>>, bool),
 }
 
-#[derive(Clone)]
+#[derive(To)]
 pub enum Selector {
     Ident(Interned),
     Integer(usize),
@@ -378,7 +377,7 @@ pub trait BuiltInFn: Leak {
     fn apply<'a>(&self, expr: &'a SExpr) -> Result<Expr_>;
 }
 
-#[derive(Clone)]
+#[derive(To)]
 pub enum FnType {
     BuiltIn(Rc<BuiltInFn>),
     Normal(Spanned<FnArg>, SExpr),
