@@ -2,7 +2,7 @@
 // License, version 2.0. If a copy of the GPL was not distributed with
 // this program, You can obtain one at http://gnu.org.
 
-#![crate_name = "lrs_build2"]
+#![crate_name = "lrs_build"]
 
 extern crate lrsb_types;
 extern crate lrsb_lexer;
@@ -335,6 +335,7 @@ struct Args {
     finishes: bool,
     graph: bool,
     rebuild: bool,
+    makefile: bool,
     target: &'static str,
     cfgs: Vec<&'static CStr>,
     tail: Vec<&'static CStr>,
@@ -349,9 +350,42 @@ Options:
      --times            Print compile times after a successful exit
   -f --finish           Print when a compile step finishes
   -g --graph            Print the dependency graph and exit
+     --cfg <OPT>        Add a configuration option
+     --makefile         Generate a makefile
   -h --help             Print this help and exit";
     println!("{}", HELP);
     process::exit(code);
+}
+
+fn print_makefile(build: &Build, config: &Config) {
+    println!(".PHONY: all\n");
+    println!("native_target := $(shell lrsc -V -v | grep host | cut -d' ' -f 2)");
+    println!("target ?= $(native_target)\n");
+    println!("all: obj/$(target)/lib{}.rlib\n", build.target.lock().crate_name);
+
+    fn print_obj(obj: &Mutex<Obj>, config: &Config) {
+        if obj.lock().build_status != BuildStatus::Pending {
+            return;
+        }
+        obj.lock().build_status = BuildStatus::Building;
+
+        println!("-include obj/$(target)/{}.d", obj.lock().crate_name);
+        print!("obj/$(target)/lib{}.rlib: ", obj.lock().crate_name);
+        for dep in &obj.lock().deps {
+            print!("obj/$(target)/lib{}.rlib ", dep.lock().crate_name);
+        }
+        print!("\n\tlrsc --emit=link,dep-info --out-dir obj/$(target) --target $(target) ");
+        for arg in &config.lrsc_args {
+            print!("{} ", arg);
+        }
+        println!("{}\n", obj.lock().path);
+
+        for dep in &obj.lock().deps {
+            print_obj(dep, config);
+        }
+    }
+
+    print_obj(&build.target, config);
 }
 
 fn short_target_to_target(t: &[u8]) -> Option<&'static str> {
@@ -370,6 +404,7 @@ fn parse_args() -> Args {
     let mut finishes = false;
     let mut graph = false;
     let mut rebuild = false;
+    let mut makefile = false;
     let mut target = target::DEFAULT;
     let mut cfgs = vec!();
 
@@ -377,7 +412,7 @@ fn parse_args() -> Args {
     args.next(); // skip program name
 
     let params = &[(Some('t'), Some("target"), false),
-                   (Some('C'), None, false)];
+                   (None, Some("cfg"), false)];
 
     let mut getopts = Getopt::new(args, params);
     for (arg, param) in &mut getopts {
@@ -393,11 +428,18 @@ fn parse_args() -> Args {
                     _ => errexit!("invalid target: {:?}", param),
                 };
             },
-                   b"times" => times = true,
+            b"times" => times = true,
             b"f" | b"finish" => finishes = true,
             b"g" | b"graph" => graph = true,
             b"h" | b"help" => print_help(0),
-            b"C" => cfgs.push(param.unwrap()),
+            b"cfg" => {
+               let param = match param {
+                   Some(p) => p,
+                   _ => errexit!("missing argument `--cfg`"),
+               };
+               cfgs.push(param)
+            },
+            b"makefile" => makefile = true,
             _ => errexit!("invalid argument: {:?}", arg),
         }
     }
@@ -409,6 +451,7 @@ fn parse_args() -> Args {
         rebuild: rebuild,
         target: target,
         cfgs: cfgs,
+        makefile: makefile,
         tail: env::args().consume(getopts.used()+1).collect(),
     }
 }
@@ -471,6 +514,11 @@ fn main() {
         lrsc_args: lrsc_args,
         target: args.target,
     };
+
+    if args.makefile {
+        print_makefile(&build, &config);
+        return;
+    }
 
     if args.graph {
         print_graph(&build);
