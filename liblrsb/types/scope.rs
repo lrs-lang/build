@@ -40,10 +40,10 @@ pub struct Scope<T: To> {
 
 impl<T: To> Scope<T> {
     /// Creates a new scope.
-    pub fn new() -> Scope<T> {
-        Scope {
-            names: HashMap::new().unwrap()
-        }
+    pub fn new() -> Result<Scope<T>> {
+        Ok(Scope {
+            names: try!(HashMap::new())
+        })
     }
 
     /// Pushes an identifier and its substitution onto the scope.
@@ -52,18 +52,20 @@ impl<T: To> Scope<T> {
     ///
     /// Every identifier can be pushed multiple times. The later values shadow the earlier
     /// values.
-    pub fn bind(&mut self, name: Interned, val: T) {
-        match self.names.entry(&name).unwrap() {
+    pub fn bind(&mut self, name: Interned, val: T) -> Result {
+        match try!(self.names.entry(&name)) {
             Entry::Occupied(mut o) => o.push(Some(val)),
             Entry::Vacant(v) => { v.set(name, vec!(Some(val))); },
         }
+        Ok(())
     }
 
-    pub fn hide(&mut self, name: Interned) {
-        match self.names.entry(&name).unwrap() {
+    pub fn hide(&mut self, name: Interned) -> Result {
+        match try!(self.names.entry(&name)) {
             Entry::Occupied(mut o) => o.push(None),
             Entry::Vacant(v) => { v.set(name, vec!(None)); },
         }
+        Ok(())
     }
 
     /// Pops an identifier from the scope.

@@ -23,7 +23,7 @@ pub type SExpr = Spanned<Expr>;
 ///
 /// Instead of copying `Expr_`s every time they are used, we add references to them. This
 /// way we only have to evaluate each `Expr_` once.
-#[derive(To)]
+#[derive(To, TryTo)]
 pub struct Expr {
     pub val: Rc<RefCell<Expr_>>,
 }
@@ -47,18 +47,16 @@ impl Debug for Expr {
     }
 }
 
-impl TryTo for Expr {
-    fn try_to(&self) -> Result<Expr> {
-        Ok(Expr { val: self.val.to() })
-    }
-}
-
 impl Expr {
     /// Creates a new reference-counted expression from an expression.
-    pub fn new(expr: Expr_) -> Expr {
-        Expr {
-            val: Rc::new().unwrap().set(RefCell::new(expr)),
-        }
+    pub fn new(expr: Expr_) -> Result<Expr> {
+        Ok(Expr {
+            val: try!(Rc::new()).set(RefCell::new(expr)),
+        })
+    }
+
+    pub fn spanned(span: Span, expr: Expr_) -> Result<Spanned<Expr>> {
+        Ok(Spanned::new(span, try!(Expr::new(expr))))
     }
 
     /// Returns whether this is a inherit expression.
@@ -71,7 +69,7 @@ impl Expr {
 }
 
 /// An expression.
-#[derive(To)]
+#[derive(To, TryTo)]
 pub enum Expr_ {
     /// A dummy expression.
     ///
@@ -360,13 +358,13 @@ impl Debug for Expr_ {
     }
 }
 
-#[derive(To)]
+#[derive(To, TryTo)]
 pub enum FnArg {
     Ident(Interned),
     Pat(Option<Spanned<Interned>>, Rc<HashMap<Interned, (Span, Option<SExpr>)>>, bool),
 }
 
-#[derive(To)]
+#[derive(To, TryTo)]
 pub enum Selector {
     Ident(Interned),
     Integer(usize),
@@ -377,7 +375,7 @@ pub trait BuiltInFn: Leak {
     fn apply<'a>(&self, expr: &'a SExpr) -> Result<Expr_>;
 }
 
-#[derive(To)]
+#[derive(To, TryTo)]
 pub enum FnType {
     BuiltIn(Rc<BuiltInFn>),
     Normal(Spanned<FnArg>, SExpr),

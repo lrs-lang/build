@@ -127,7 +127,7 @@ impl<D: Diagnostic> Parser<D> {
                     let expr = stack.pop_expr();
                     let path = try!(self.parse_attr_path());
                     let span = Span::new(expr.span.lo, path.span.hi);
-                    let expr = Spanned::new(span, Expr::new(Expr_::Test(expr, path)));
+                    let expr = try!(Expr::spanned(span, Expr_::Test(expr, path)));
                     stack.push_expr(expr);
                 } else if op == Op::Select {
                     // Select has the form
@@ -155,7 +155,7 @@ impl<D: Diagnostic> Parser<D> {
                     };
                     let span = Span::new(expr.span.lo, hi);
                     let expr = Expr_::Select(expr, path, alt);
-                    let expr = Spanned::new(span, Expr::new(expr));
+                    let expr = try!(Expr::spanned(span, expr));
                     stack.push_expr(expr);
                 } else {
                     stack.push_op(op);
@@ -164,7 +164,7 @@ impl<D: Diagnostic> Parser<D> {
             }
         }
 
-        Ok(stack.clear())
+        stack.clear()
     }
 
     /// Parses an atomic expression.
@@ -260,16 +260,15 @@ impl<D: Diagnostic> Parser<D> {
     fn parse_string_part(&mut self) -> Result<SExpr> {
         let token = try!(self.lexer.next());
         let mut expr = match token.val {
-            Token::StringPart(s) => Spanned::new(token.span,
-                                                 Expr::new(Expr_::String(s))),
+            Token::StringPart(s) => try!(Expr::spanned(token.span, Expr_::String(s))),
             _ => abort!(),
         };
         let mut end = false;
         while !end {
             let tmp = try!(self.parse_expr());
             let span = Span::new(expr.span.lo, tmp.span.hi);
-            let sfy = Spanned::new(tmp.span, Expr::new(Expr_::Stringify(tmp)));
-            expr = Spanned::new(span, Expr::new(Expr_::Concat(expr, sfy)));
+            let sfy = try!(Expr::spanned(tmp.span, Expr_::Stringify(tmp)));
+            expr = try!(Expr::spanned(span, Expr_::Concat(expr, sfy)));
 
             let tmp = try!(self.lexer.cont_string());
             let id = match tmp.val {
@@ -277,9 +276,9 @@ impl<D: Diagnostic> Parser<D> {
                 Token::String(id) => { end = true; id },
                 _ => abort!(),
             };
-            let tmp = Spanned::new(tmp.span, Expr::new(Expr_::String(id)));
+            let tmp = try!(Expr::spanned(tmp.span, Expr_::String(id)));
             let span = Span::new(expr.span.lo, tmp.span.hi);
-            expr = Spanned::new(span, Expr::new(Expr_::Concat(expr, tmp)));
+            expr = try!(Expr::spanned(span, Expr_::Concat(expr, tmp)));
         }
         Ok(expr)
     }
@@ -307,7 +306,7 @@ impl<D: Diagnostic> Parser<D> {
                 return Err(error::InvalidSequence);
             },
         };
-        Ok(Spanned::new(next.span, Expr::new(Expr_::Selector(sel))))
+        Expr::spanned(next.span, Expr_::Selector(sel))
     }
 
     /// Parses an attribute path.
@@ -335,8 +334,8 @@ impl<D: Diagnostic> Parser<D> {
         }
         path.shrink_to_fit();
         let span = Span::new(path[0].span.lo, path.last().unwrap().span.hi);
-        let expr = Expr_::Path(Rc::new().unwrap().set(path));
-        Ok(Spanned::new(span, Expr::new(expr)))
+        let expr = Expr_::Path(try!(Rc::new()).set(path));
+        Expr::spanned(span, expr)
     }
 
     /// Parses a function.
@@ -376,7 +375,7 @@ impl<D: Diagnostic> Parser<D> {
                 let arg = FnArg::Ident(id);
                 let span = Span::new(first.span.lo, body.span.hi);
                 let expr = Expr_::Fn(FnType::Normal(Spanned::new(first.span, arg), body));
-                return Ok(Spanned::new(span, Expr::new(expr)));
+                return Expr::spanned(span, expr);
             }
 
             // Third case above.
@@ -390,7 +389,7 @@ impl<D: Diagnostic> Parser<D> {
                 let arg = FnArg::Pat(Some(Spanned::new(first.span, id)), pat, wild);
                 let span = Span::new(first.span.lo, body.span.hi);
                 let expr = Expr_::Fn(FnType::Normal(Spanned::new(arg_span, arg), body));
-                return Ok(Spanned::new(span, Expr::new(expr)));
+                return Expr::spanned(span, expr);
             }
 
             self.diagnostic.error(second.span,
@@ -406,7 +405,7 @@ impl<D: Diagnostic> Parser<D> {
             let arg = FnArg::Pat(None, pat, wild);
             let span = Span::new(pat_span.lo, body.span.hi);
             let expr = Expr_::Fn(FnType::Normal(Spanned::new(pat_span, arg), body));
-            return Ok(Spanned::new(span, Expr::new(expr)));
+            return Expr::spanned(span, expr);
         }
 
         // Cannot happen
@@ -484,7 +483,7 @@ impl<D: Diagnostic> Parser<D> {
         try!(vars.shrink_to_fit());
         let closing = try!(self.lexer.next_right_brace());
         let span = Span::new(opening.span.lo, closing.span.hi);
-        Ok((span, Rc::new().unwrap().set(vars), wild))
+        Ok((span, try!(Rc::new()).set(vars), wild))
     }
 
     /// Parses a simple expression.
@@ -511,7 +510,7 @@ impl<D: Diagnostic> Parser<D> {
             Token::String(s) => Expr_::String(s),
             _ => abort!(),
         };
-        Ok(Spanned::new(t.span, Expr::new(expr)))
+        Expr::spanned(t.span, expr)
     }
 
     /// Parses a let binding.
@@ -552,8 +551,8 @@ impl<D: Diagnostic> Parser<D> {
         try!(bindings.shrink_to_fit());
         let expr = try!(self.parse_expr());
         let span = Span::new(let_.span.lo, expr.span.hi);
-        let expr = Expr_::Let(Rc::new().unwrap().set(bindings), expr);
-        Ok(Spanned::new(span, Expr::new(expr)))
+        let expr = Expr_::Let(try!(Rc::new()).set(bindings), expr);
+        Expr::spanned(span, expr)
     }
 
     /// Parses a conditional.
@@ -580,7 +579,7 @@ impl<D: Diagnostic> Parser<D> {
         try!(self.lexer.next_else());
         let e3 = try!(self.parse_expr());
         let span = Span::new(if_.span.lo, e3.span.hi);
-        Ok(Spanned::new(span, Expr::new(Expr_::Cond(e1, e2, e3))))
+        Expr::spanned(span, Expr_::Cond(e1, e2, e3))
     }
 
     /// Parses a list.
@@ -622,7 +621,7 @@ impl<D: Diagnostic> Parser<D> {
         let end = self.lexer.next().unwrap();
         let span = Span::new(start.span.lo, end.span.hi);
         els.shrink_to_fit();
-        Ok(Spanned::new(span, Expr::new(Expr_::List(Rc::new().unwrap().set(els)))))
+        Expr::spanned(span, Expr_::List(try!(Rc::new()).set(els)))
     }
 
     /// Parses a set.
@@ -684,8 +683,8 @@ impl<D: Diagnostic> Parser<D> {
                                         return Err(error::InvalidSequence);
                                     },
                                     Entry::Vacant(e) => {
-                                        let ex = Spanned::new(next.span,
-                                                              Expr::new(Expr_::Inherit));
+                                        let ex = try!(Expr::spanned(next.span,
+                                                                    Expr_::Inherit));
                                         e.set(ident, (next.span, ex));
                                     },
                                 };
@@ -721,6 +720,6 @@ impl<D: Diagnostic> Parser<D> {
         let closing = try!(self.lexer.next_right_brace());
         let span = Span::new(opening.span.lo, closing.span.hi);
         try!(fields.shrink_to_fit());
-        Ok(Spanned::new(span, Expr::new(Expr_::Set(Rc::new().unwrap().set(fields), rec))))
+        Expr::spanned(span, Expr_::Set(try!(Rc::new()).set(fields), rec))
     }
 }

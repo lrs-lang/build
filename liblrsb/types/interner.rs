@@ -6,7 +6,7 @@ use std::{mem};
 use std::hashmap::{CompactMap, Entry};
 use std::fmt::{Debug, Write};
 use std::share::{Cell};
-use std::string::{AsByteStr, ByteStr};
+use std::string::{ByteStr};
 use std::hash::{Hash, Hasher};
 
 /// A string interned in an interned.
@@ -43,13 +43,13 @@ pub struct Interner {
 
 impl Interner {
     /// Creates a new interner.
-    pub fn new() -> Interner {
-        Interner {
+    pub fn new() -> Result<Interner> {
+        Ok(Interner {
             data: Cell::new(Inner {
                 strings: Vec::new(),
-                ids: CompactMap::new().unwrap(),
+                ids: try!(CompactMap::new()),
             }),
-        }
+        })
     }
 
     fn inner(&self) -> &mut Inner {
@@ -63,11 +63,11 @@ impl Interner {
     ///
     /// [return_value]
     /// Returns the interned string.
-    pub fn insert(&self, val: Vec<u8>) -> Interned {
+    pub fn insert(&self, val: Vec<u8>) -> Result<Interned> {
         let inner = self.inner();
         let pos = {
             let strr: &'static _ = unsafe { mem::cast(&*val) };
-            match inner.ids.entry(&strr).unwrap() {
+            match try!(inner.ids.entry(&strr)) {
                 Entry::Vacant(v) => {
                     let pos = inner.strings.len();
                     inner.strings.push(val);
@@ -77,7 +77,7 @@ impl Interner {
                 Entry::Occupied(o) => *o,
             }
         };
-        Interned(pos as u32)
+        Ok(Interned(pos as u32))
     }
 
     /// Looks up the contents of an interned string.
@@ -88,7 +88,7 @@ impl Interner {
         let inner = self.inner();
         let i = i.0 as usize;
         assert!(i < inner.strings.len());
-        inner.strings[i].as_byte_str()
+        inner.strings[i].as_ref()
     }
 
     /// Concatenates two interned strings.
@@ -102,11 +102,11 @@ impl Interner {
     /// [return_value]
     /// Returns a new interned string whose content is the concatenation of the contents
     /// of the left and right parts.
-    pub fn concat(&self, left: Interned, right: Interned) -> Interned {
+    pub fn concat(&self, left: Interned, right: Interned) -> Result<Interned> {
         let tmp: &[u8] = self.get(left).as_ref();
-        let mut l = tmp.to_owned().unwrap();
+        let mut l: Vec<u8> = try!(tmp.try_to());
         let r = self.get(right).as_ref();
-        l.push_all(r).unwrap();
+        try!(l.push_all(r));
         self.insert(l)
     }
 }

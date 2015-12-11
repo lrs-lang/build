@@ -2,7 +2,6 @@
 // License, version 2.0. If a copy of the GPL was not distributed with
 // this program, You can obtain one at http://gnu.org.
 
-use std::string::{AsByteStr};
 use std::hashmap::{HashMap};
 use std::{mem};
 use std::share::{RefCell};
@@ -215,7 +214,7 @@ fn print_tree_<W: Write>(e: &Expr, int: &Interner, mut w: &mut W, id: &mut u32,
                 FnArg::Pat(i, ref args, wild) => {
                     let name = match i {
                         Some(i) => int.get(i.val),
-                        _ => "".as_byte_str(),
+                        _ => "".as_ref(),
                     };
                     try!(write!(w, "{} [shape=\"box\", label=\"{} @\"];", id, name));
                     let aid = *id;

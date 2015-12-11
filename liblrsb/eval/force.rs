@@ -115,7 +115,7 @@ impl<D: Diagnostic> Eval<D> {
             Expr_::Let(..) | Expr_::Set(_, true) =>
             {
                 drop(borrow);
-                self.force_bind(expr, &mut Scope::new(), false);
+                self.force_bind(expr, &mut try!(Scope::new()), false);
                 self.force(expr)
             },
             Expr_::Cond(..) =>
@@ -269,7 +269,7 @@ impl<D: Diagnostic> Eval<D> {
             match *left {
                 Expr_::String(left) => {
                     let right = try!(self.get_string(r));
-                    let new = self.interner.concat(left, right);
+                    let new = try!(self.interner.concat(left, right));
                     Expr_::String(new)
                 },
                 Expr_::List(ref left) => {
@@ -280,7 +280,7 @@ impl<D: Diagnostic> Eval<D> {
                         let mut left = try!((**left).try_to());
                         left.reserve(right.len());
                         for el in &right { left.push(el.to()); }
-                        Expr_::List(Rc::new().unwrap().set(left))
+                        Expr_::List(try!(Rc::new()).set(left))
                     }
                 },
                 _ => {
@@ -298,10 +298,10 @@ impl<D: Diagnostic> Eval<D> {
         Ok(())
     }
 
-    fn force_bind(&self, expr: &SExpr, scope: &mut Scope<SExpr>, in_fn_body: bool) {
+    fn force_bind(&self, expr: &SExpr, scope: &mut Scope<SExpr>, in_fn_body: bool) -> Result {
         macro_rules! resolve {
             ($a:expr) => {{
-                self.force_bind($a, scope, in_fn_body)
+                try!(self.force_bind($a, scope, in_fn_body))
             }};
         }
 
@@ -313,7 +313,7 @@ impl<D: Diagnostic> Eval<D> {
                 if let Some(e) = scope.get(id) {
                     *val = Expr_::Resolved(Some(id), e);
                 }
-                return;
+                return Ok(());
             }
         }
 
@@ -343,7 +343,7 @@ impl<D: Diagnostic> Eval<D> {
                 if let Some(new_val) = new_val {
                     *val = new_val;
                 }
-                return;
+                return Ok(());
             }
         }
 
@@ -382,7 +382,7 @@ impl<D: Diagnostic> Eval<D> {
                 if let Some(new_val) = new_val {
                     *val = new_val;
                 }
-                return;
+                return Ok(());
             }
         }
 
@@ -390,7 +390,7 @@ impl<D: Diagnostic> Eval<D> {
         {
             if let Expr_::Fn(FnType::Normal(ref pat, ref body)) = *val {
                 match pat.val {
-                    FnArg::Ident(id) => scope.hide(id),
+                    FnArg::Ident(id) => try!(scope.hide(id)),
                     FnArg::Pat(id, ref fields, _) => {
                         for (_, &(_, ref field_alt)) in &*fields {
                             if let Some(ref field_alt) = *field_alt {
@@ -398,10 +398,10 @@ impl<D: Diagnostic> Eval<D> {
                             }
                         }
                         for (&field_name, _) in &*fields {
-                            scope.hide(field_name);
+                            try!(scope.hide(field_name));
                         }
                         if let Some(id) = id {
-                            scope.hide(id.val);
+                            try!(scope.hide(id.val));
                         }
                     },
                 }
@@ -417,7 +417,7 @@ impl<D: Diagnostic> Eval<D> {
                         }
                     },
                 }
-                return;
+                return Ok(());
             }
         }
 
@@ -506,6 +506,7 @@ impl<D: Diagnostic> Eval<D> {
                 }
             },
         }
+        Ok(())
     }
 
     fn force_cond(&self, expr: &SExpr) -> Result {
@@ -540,7 +541,7 @@ impl<D: Diagnostic> Eval<D> {
             Expr_::String(..) => *val = Expr_::Resolved(None, e),
             Expr_::Integer(v) => {
                 let s = format!("{}", v).into();
-                let id = self.interner.insert(s);
+                let id = try!(self.interner.insert(s));
                 *val = Expr_::String(id);
             },
             _ => {
@@ -567,7 +568,7 @@ impl<D: Diagnostic> Eval<D> {
             },
         };
 
-        let mut scope = Scope::new();
+        let mut scope = try!(Scope::new());
 
         match pat.val {
             FnArg::Ident(i) => {

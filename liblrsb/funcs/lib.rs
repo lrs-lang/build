@@ -14,7 +14,7 @@ use std::{error};
 
 use types::diagnostic::{Diagnostic, Error};
 use types::tree::{BuiltInFn, SExpr, Expr_, FnType, Expr};
-use types::span::{Spanned, Span};
+use types::span::{Span};
 use eval::{Eval};
 
 struct Bi<C>(C);
@@ -38,11 +38,11 @@ pub fn to_list<D>(eval: Rc<Eval<D>>) -> Result<Rc<BuiltInFn>>
 {
     let f = move |e: &SExpr| {
         let fields = try!(eval.get_fields(e));
-        let mut list = Vec::with_capacity(fields.size()).unwrap();
+        let mut list = try!(Vec::with_capacity(fields.size()));
         for (_, &(_, ref val)) in &fields {
             list.push(val.to());
         }
-        Ok(Expr_::List(Rc::new().unwrap().set(list)))
+        Ok(Expr_::List(try!(Rc::new()).set(list)))
     };
     Ok(try!(Rc::new()).set(Bi(f)))
 }
@@ -98,12 +98,12 @@ pub fn filter<D>(eval: Rc<Eval<D>>) -> Result<Rc<BuiltInFn>>
             let mut nlist = try!(Vec::with_capacity(list.len()));
             for el in &list {
                 let span = Span::new(olist.span.lo, cond.span.hi);
-                let expr = Expr::new(Expr_::Apl(cond.to(), el.to()));
-                if try!(eval.get_bool(&Spanned::new(span, expr))) {
+                let expr = try!(Expr::spanned(span, Expr_::Apl(cond.to(), el.to())));
+                if try!(eval.get_bool(&expr)) {
                     nlist.push(el.to());
                 }
             }
-            Ok(Expr_::List(Rc::new().unwrap().set(nlist)))
+            Ok(Expr_::List(try!(Rc::new()).set(nlist)))
         };
         Ok(bi!(f))
     };

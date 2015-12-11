@@ -2,7 +2,7 @@
 // License, version 2.0. If a copy of the GPL was not distributed with
 // this program, You can obtain one at http://gnu.org.
 
-use std::string::{NoNullString, NoNullStr, AsByteStr, ByteStr};
+use std::string::{NoNullString, NoNullStr, ByteStr};
 use std::rc::{Rc};
 use std::util::{memchr};
 
@@ -149,7 +149,7 @@ impl<'a> Iterator for LineIter<'a> {
             let hi = self.src.lines[self.start+1];
             let line = &self.src.src[lo as usize..hi as usize];
             self.start += 1;
-            Some((self.start as u32, line.as_byte_str()))
+            Some((self.start as u32, line.as_ref()))
         }
     }
 }
@@ -163,5 +163,11 @@ impl<'a> To for LineIter<'a> {
             start_idx: self.start_idx,
             end_idx:   self.end_idx,
         }
+    }
+}
+
+impl<'a> TryTo for LineIter<'a> {
+    fn try_to(&self) -> Result<Self> {
+        Ok(self.to())
     }
 }

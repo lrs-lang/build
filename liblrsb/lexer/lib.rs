@@ -385,8 +385,8 @@ impl<D: Diagnostic> Lexer<D> {
                     break;
                 }
             }
-            let ident = try!(self.chars.text()[..i].to_owned());
-            let ident = self.interner.insert(ident);
+            let ident = try!(self.chars.text()[..i].try_to());
+            let ident = try!(self.interner.insert(ident));
             for _ in 0..i { self.chars.next(); }
             return Ok(Some(Spanned::new(Span::new(self.lo+cur_pos, self.pos()),
                                         Token::Ident(ident))));
@@ -429,7 +429,7 @@ impl<D: Diagnostic> Lexer<D> {
                 break;
             }
             if cur != b'\\' {
-                res.try_push(cur).unwrap();
+                try!(res.try_push(cur));
                 continue;
             }
             let (pos, cur) = match self.chars.next() {
@@ -441,11 +441,11 @@ impl<D: Diagnostic> Lexer<D> {
                     return Err(error::InvalidSequence);
                 }
             };
-            match cur {
-                b'\\' => res.try_push(b'\\').unwrap(),
-                b'"' => res.try_push(b'"').unwrap(),
-                b'n' => res.try_push(b'\n').unwrap(),
-                b't' => res.try_push(b'\t').unwrap(),
+            let res = match cur {
+                b'\\' => res.try_push(b'\\'),
+                b'"' => res.try_push(b'"'),
+                b'n' => res.try_push(b'\n'),
+                b't' => res.try_push(b'\t'),
                 b'u' => {
                     try!(self.next_left_brace());
                     let before = self.pos();
@@ -468,11 +468,11 @@ impl<D: Diagnostic> Lexer<D> {
                         },
                     };
                     let bytes = chr.to_utf8();
-                    res.push_all(&bytes[..chr.len()]);
+                    res.push_all(&bytes[..chr.len()])
                 },
-                b'd' => res.push_all(&self.dir).unwrap(),
+                b'd' => res.push_all(&self.dir),
                 b'{' => {
-                    let id = self.interner.insert(res);
+                    let id = try!(self.interner.insert(res));
                     let span = Span::new(start, esc_pos);
                     return Ok(Some(Spanned::new(span, Token::StringPart(id))));
                 },
@@ -481,9 +481,10 @@ impl<D: Diagnostic> Lexer<D> {
                                           Error::UnknownEscapeSequence(cur));
                     return Err(error::InvalidSequence);
                 },
-            }
+            };
+            try!(res);
         }
-        let id = self.interner.insert(res);
+        let id = try!(self.interner.insert(res));
         Ok(Some(Spanned::new(Span::new(start, self.pos()), Token::String(id))))
     }
 }

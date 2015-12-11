@@ -51,20 +51,24 @@ impl<T: Hash> Hash for Spanned<T> {
     }
 }
 
-impl<U, T: To<U>> To<Spanned<U>> for Spanned<T> {
-    fn to(&self) -> Spanned<U> {
+impl<T, U = T> From<Spanned<U>> for Spanned<T>
+    where U: To<T>,
+{
+    fn from(t: &Spanned<U>) -> Spanned<T> {
         Spanned {
-            span: self.span,
-            val: self.val.to(),
+            span: t.span,
+            val: t.val.to(),
         }
     }
 }
 
-impl<U, T: TryTo<U>> TryTo<Spanned<U>> for Spanned<T> {
-    fn try_to(&self) -> Result<Spanned<U>> {
+impl<T, U = T> TryFrom<Spanned<U>> for Spanned<T>
+    where U: TryTo<T>,
+{
+    fn try_from(t: &Spanned<U>) -> Result<Spanned<T>> {
         Ok(Spanned {
-            span: self.span,
-            val: try!(self.val.try_to()),
+            span: t.span,
+            val: try!(t.val.try_to()),
         })
     }
 }

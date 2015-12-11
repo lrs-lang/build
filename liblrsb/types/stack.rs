@@ -4,7 +4,7 @@
 
 use tree::{Expr, Expr_, SExpr};
 use op::{Op};
-use span::{Span, Spanned};
+use span::{Span};
 
 /// A stack for combining a stream of expressions and operators to a single expression
 /// that respects the operator precedence.
@@ -29,8 +29,10 @@ impl Stack {
     }
 
     /// Pushes an expression onto the stack.
-    pub fn push_expr(&mut self, expr: SExpr) {
+    pub fn push_expr(&mut self, expr: SExpr) -> Result {
+        try!(self.expr.reserve(1));
         self.expr.push(expr);
+        Ok(())
     }
 
     /// Pops an expression from the stack.
@@ -43,9 +45,11 @@ impl Stack {
     }
 
     /// Pushes an operator onto the stack.
-    pub fn push_op(&mut self, nop: Op) {
-        self.next_op(nop);
+    pub fn push_op(&mut self, nop: Op) -> Result {
+        try!(self.next_op(nop));
+        try!(self.op.reserve(1));
         self.op.push(nop);
+        Ok(())
     }
 
     /// Announces the next operator.
@@ -58,41 +62,42 @@ impl Stack {
     ///
     /// This function is necessary because we want to handle certain operators inside the
     /// parser instead of the stack. See the comment in `combine_unary` below.
-    pub fn next_op(&mut self, nop: Op) {
+    pub fn next_op(&mut self, nop: Op) -> Result {
         let nprec = nop.precedence();
         while self.op.len() > 0 {
             let op = *self.op.last().unwrap();
             let prec = op.precedence();
             if prec > nprec || (prec >= nprec && op.left_assoc()) {
-                self.combine();
+                try!(self.combine());
             } else {
                 break;
             }
         }
+        Ok(())
     }
 
     /// Combines all expressions and operators that are on the stack into a single
     /// expression.
-    pub fn clear(&mut self) -> SExpr {
+    pub fn clear(&mut self) -> Result<SExpr> {
         while self.op.len() > 0 {
-            self.combine();
+            try!(self.combine());
         }
         assert!(self.expr.len() == 1);
-        self.expr.pop().unwrap()
+        Ok(self.expr.pop().unwrap())
     }
 
     /// Pops an operator and one (in the case of a unary operator) or two (in the case of
     /// a binary operator) off of the stack to combine them.
-    fn combine(&mut self) {
+    fn combine(&mut self) -> Result {
         let op = *self.op.last().unwrap();
         if op.unary() {
-            self.combine_unary();
+            self.combine_unary()
         } else {
-            self.combine_binary();
+            self.combine_binary()
         }
     }
 
-    fn combine_binary(&mut self) {
+    fn combine_binary(&mut self) -> Result {
         let op = self.op.pop().unwrap();
         let right = self.expr.pop().unwrap();
         let left = self.expr.pop().unwrap();
@@ -122,11 +127,12 @@ impl Stack {
             Op::Not(..) | Op::UnMin(..) => abort!(),
         };
         let span = Span::new(left.span.lo, right.span.hi);
-        let expr = Spanned::new(span, Expr::new(expr(left, right)));
+        let expr = try!(Expr::spanned(span, expr(left, right)));
         self.expr.push(expr);
+        Ok(())
     }
 
-    fn combine_unary(&mut self) {
+    fn combine_unary(&mut self) -> Result {
         let op = self.op.pop().unwrap();
         let arg = self.expr.pop().unwrap();
         let (lo, expr): (_, fn(SExpr) -> Expr_) = match op {
@@ -137,7 +143,8 @@ impl Stack {
             _ => abort!(),
         };
         let span = Span::new(lo, arg.span.hi);
-        let expr = Spanned::new(span, Expr::new(expr(arg)));
+        let expr = try!(Expr::spanned(span, expr(arg)));
         self.expr.push(expr);
+        Ok(())
     }
 }

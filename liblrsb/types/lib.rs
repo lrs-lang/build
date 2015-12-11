@@ -5,6 +5,7 @@
 #![crate_name = "lrsb_types"]
 #![crate_type = "lib"]
 #![feature(custom_derive)]
+#![feature(default_type_parameter_fallback)]
 
 pub mod codemap;
 pub mod interner;

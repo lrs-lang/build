@@ -19,7 +19,7 @@ use std::sync::{Queue, Mutex};
 use std::{env, mem, cmp, thread};
 use std::process::{self, WAIT_EXITED, ChildStatus};
 use std::string::{
-    NoNullString, ByteString, CPtrPtr, CStr, NoNullStr, AsNoNullStr,
+    NoNullString, ByteString, CPtrPtr, CStr, NoNullStr,
 };
 use std::io::{BufReader, BufRead};
 use std::iter::{IteratorExt};
@@ -503,7 +503,8 @@ fn main() {
 
     let mut lrsc_args = vec!();
     for cfg in &build.cfgs {
-        lrsc_args.push("--cfg".as_no_null_str().unwrap().to_owned().unwrap());
+        let c: &NoNullStr = "--cfg".try_as_ref().unwrap();
+        lrsc_args.push(c.to_owned().unwrap());
         lrsc_args.push(cfg.try_to().unwrap());
     }
     for cfg in &args.tail {
