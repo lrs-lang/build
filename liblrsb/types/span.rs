@@ -51,27 +51,45 @@ impl<T: Hash> Hash for Spanned<T> {
     }
 }
 
-impl<T, U = T> From<Spanned<U>> for Spanned<T>
-    where U: To<T>,
-{
-    fn from(t: &Spanned<U>) -> Spanned<T> {
+impl<U, T: To<U>> To<Spanned<U>> for Spanned<T> {
+    fn to(&self) -> Spanned<U> {
         Spanned {
-            span: t.span,
-            val: t.val.to(),
+            span: self.span,
+            val: self.val.to(),
         }
     }
 }
 
-impl<T, U = T> TryFrom<Spanned<U>> for Spanned<T>
-    where U: TryTo<T>,
-{
-    fn try_from(t: &Spanned<U>) -> Result<Spanned<T>> {
+impl<U, T: TryTo<U>> TryTo<Spanned<U>> for Spanned<T> {
+    fn try_to(&self) -> Result<Spanned<U>> {
         Ok(Spanned {
-            span: t.span,
-            val: try!(t.val.try_to()),
+            span: self.span,
+            val: try!(self.val.try_to()),
         })
     }
 }
+
+// impl<T, U = T> From<Spanned<U>> for Spanned<T>
+//     where U: To<T>,
+// {
+//     fn from(t: &Spanned<U>) -> Spanned<T> {
+//         Spanned {
+//             span: t.span,
+//             val: t.val.to(),
+//         }
+//     }
+// }
+// 
+// impl<T, U = T> TryFrom<Spanned<U>> for Spanned<T>
+//     where U: TryTo<T>,
+// {
+//     fn try_from(t: &Spanned<U>) -> Result<Spanned<T>> {
+//         Ok(Spanned {
+//             span: t.span,
+//             val: try!(t.val.try_to()),
+//         })
+//     }
+// }
 
 impl<T: Debug> Debug for Spanned<T> {
     fn fmt<W: Write>(&self, mut w: &mut W) -> Result {

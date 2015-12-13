@@ -2,7 +2,7 @@
 // License, version 2.0. If a copy of the GPL was not distributed with
 // this program, You can obtain one at http://gnu.org.
 
-use std::string::{NoNullString, NoNullStr, ByteStr};
+use std::string::{CString, CStr, ByteStr};
 use std::rc::{Rc};
 use std::util::{memchr};
 
@@ -30,7 +30,7 @@ impl Codemap {
     ///
     /// [argument, src]
     /// The contents of the file.
-    pub fn add_file(&mut self, name: NoNullString, src: Rc<Vec<u8>>) {
+    pub fn add_file(&mut self, name: CString, src: Rc<Vec<u8>>) {
         let mut cur_pos = match self.files.last() {
             Some(f) => *f.lines.last().unwrap(),
             _ => 0,
@@ -74,7 +74,7 @@ impl Codemap {
 ///
 /// This is where the real work happens.
 pub struct Filemap {
-    file: NoNullString,
+    file: CString,
     src: Rc<Vec<u8>>,
     /// Contains at index `i` the byte that starts line `i+1`.
     lines: Vec<u32>,
@@ -82,7 +82,7 @@ pub struct Filemap {
 
 impl Filemap {
     /// Returns the name of the file represented by this map.
-    pub fn file(&self) -> &NoNullStr {
+    pub fn file(&self) -> &CStr {
         &self.file
     }
 

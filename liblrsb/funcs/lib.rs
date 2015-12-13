@@ -51,8 +51,8 @@ pub fn assert<D>(eval: Rc<Eval<D>>) -> Result<Rc<BuiltInFn>>
     where D: Diagnostic + 'static,
 {
     let f = move |cond: &SExpr| {
-        let eval = eval.to();
-        let cond = cond.to();
+        let eval = eval.clone();
+        let cond = cond.clone();
         let f = move |tail: &SExpr| {
             if try!(eval.get_bool(&cond)) {
                 Ok(Expr_::Resolved(None, tail.to()))
@@ -71,7 +71,7 @@ pub fn contains<D>(eval: Rc<Eval<D>>) -> Result<Rc<BuiltInFn>>
     where D: Diagnostic + 'static,
 {
     let f = move |list: &SExpr| {
-        let eval = eval.to();
+        let eval = eval.clone();
         let list = list.to();
         let f = move |val: &SExpr| {
             let list = try!(eval.get_list(&list));
@@ -91,8 +91,8 @@ pub fn filter<D>(eval: Rc<Eval<D>>) -> Result<Rc<BuiltInFn>>
     where D: Diagnostic + 'static,
 {
     let f = move |list: &SExpr| {
-        let eval = eval.to();
-        let olist = list.to();
+        let eval = eval.clone();
+        let olist = list.clone();
         let f = move |cond: &SExpr| {
             let list = try!(eval.get_list(&olist));
             let mut nlist = try!(Vec::with_capacity(list.len()));

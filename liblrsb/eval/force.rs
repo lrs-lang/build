@@ -191,8 +191,7 @@ impl<D: Diagnostic> Eval<D> {
                 Expr_::Bool(try!(self.get_int(l)) >= try!(self.get_int(r)))
             },
             Expr_::Le(ref l, ref r) => {
-                Expr_::Bool(try!(self.get_int(l)) <=
-                            try!(self.get_int(r)))
+                Expr_::Bool(try!(self.get_int(l)) <= try!(self.get_int(r)))
             },
             Expr_::Eq(ref l, ref r) => {
                 Expr_::Bool(try!(self.equal_to(r, l)))
@@ -213,7 +212,7 @@ impl<D: Diagnostic> Eval<D> {
                 Expr_::Bool(!try!(self.get_bool(e)))
             }
             Expr_::Test(ref s, ref path) => {
-                let mut set = s.to();
+                let mut set = s.clone();
                 let mut path = &self.get_path(&path)[..];
                 let mut err_span = set.span;
                 while path.len() > 0 {
@@ -242,7 +241,7 @@ impl<D: Diagnostic> Eval<D> {
             let bottom = try!(self.get_fields(bottom));
             let top = try!(self.get_fields(top));
 
-            let mut new = try!((*bottom).try_to());
+            let mut new = try!((*bottom).try_clone());
 
             for (&id, &(span, ref val)) in &top {
                 new.set(id, (span, val.to()));
@@ -277,7 +276,7 @@ impl<D: Diagnostic> Eval<D> {
                     if right.len() == 0 {
                         Expr_::List(left.to())
                     } else {
-                        let mut left = try!((**left).try_to());
+                        let mut left = try!((**left).try_clone());
                         left.reserve(right.len());
                         for el in &right { left.push(el.to()); }
                         Expr_::List(try!(Rc::new()).set(left))
@@ -540,7 +539,7 @@ impl<D: Diagnostic> Eval<D> {
         match *dst {
             Expr_::String(..) => *val = Expr_::Resolved(None, e),
             Expr_::Integer(v) => {
-                let s = format!("{}", v).into();
+                let s = try!(format!("{}", v));
                 let id = try!(self.interner.insert(s));
                 *val = Expr_::String(id);
             },
@@ -643,7 +642,7 @@ impl<D: Diagnostic> Eval<D> {
         let res = {
             let val = expr.val.val.borrow();
 
-            let (mut set, path, alt) = match *val {
+            let (mut set, path, alt): (SExpr, _, _) = match *val {
                 Expr_::Select(ref s, ref p, ref a) => (s.to(), p, a.to()),
                 _ => abort!(),
             };

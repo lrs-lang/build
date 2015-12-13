@@ -8,7 +8,7 @@
 extern crate lrsb_types as types;
 
 use std::rc::{Rc};
-use std::string::{NoNullString};
+use std::string::{CString};
 use std::ringbuf::{DynRingBuf};
 use std::{error};
 use std::parse::{Parsable, HexU32};
@@ -77,7 +77,7 @@ pub struct Lexer<D: Diagnostic> {
     peek: DynRingBuf<SToken>,
     lo: u32,
     pub chars: CharStream,
-    dir: NoNullString,
+    dir: CString,
 }
 
 macro_rules! next_t {
@@ -94,7 +94,7 @@ macro_rules! next_t {
 
 impl<D: Diagnostic> Lexer<D> {
     pub fn new(lo: u32, src: Rc<Vec<u8>>, diag: Rc<D>, interner: Rc<Interner>,
-               dir: NoNullString) -> Lexer<D> {
+               dir: CString) -> Lexer<D> {
         Lexer {
             diagnostic: diag,
             interner: interner,

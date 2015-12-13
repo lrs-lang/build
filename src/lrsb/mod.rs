@@ -6,7 +6,7 @@ use std::rc::{Rc, Arc};
 use std::sync::{Mutex};
 use std::share::{RefCell, RefCellStatus};
 use std::fd::{STDERR, FdIo};
-use std::string::{NoNullStr, CStr};
+use std::string::{NoNullStr, CStr, CString};
 use std::{mem, error, tty};
 use std::hashmap::{HashMap};
 
@@ -29,7 +29,7 @@ pub fn parse(build_path: &NoNullStr, original: &NoNullStr, cfgs: &[&CStr],
     let interner = try!(Rc::new()).set(try!(Interner::new()));
     let input = try!(Rc::new()).set(v);
     let map = {
-        let mut path = try!(build_path.to_owned());
+        let mut path: CString = try!(build_path.try_to());
         try!(path.push_file("LRSBuild"));
         let mut map = Codemap::new();
         map.add_file(path, input.to());
@@ -39,7 +39,7 @@ pub fn parse(build_path: &NoNullStr, original: &NoNullStr, cfgs: &[&CStr],
 
     let tree = {
         let lexer = Lexer::new(0, input.to(), diag.to(), interner.to(),
-                               try!(build_path.to_owned()));
+                               try!(build_path.try_to()));
         let mut parser = Parser::new(lexer, diag.to());
         try!(parser.parse())
     };
@@ -47,17 +47,17 @@ pub fn parse(build_path: &NoNullStr, original: &NoNullStr, cfgs: &[&CStr],
     let cfgs = {
         let mut ncfgs: Vec<_> = try!(Vec::with_capacity(cfgs.len()));
         for c in cfgs {
-            ncfgs.push(try!(interner.insert(try!(c.to_owned()).into())));
+            ncfgs.push(try!(interner.insert(try!((*c).try_to()))));
         }
         ncfgs
     };
 
     let path = {
-        let mut p: Vec<_> = vec!();
+        let mut p = vec!();
         let mut path = original;
         while path != build_path {
-            let (l, r) = path.split();
-            p.push(try!(interner.insert(try!(r.to_owned()).into())));
+            let (l, r) = path.split_path();
+            p.push(try!(interner.insert(try!(r.try_to()))));
             path = l;
         }
         p.reverse();
@@ -75,8 +75,8 @@ fn flatten<D>(eval: &Eval<D>, expr: SExpr, diag: &D,
               interner: &Interner) -> Result<Build>
     where D: Diagnostic,
 {
-    let id_cfgs = try!(interner.insert(try!(b"cfgs".to_owned())));
-    let id_target = try!(interner.insert(try!(b"target".to_owned())));
+    let id_cfgs = try!(interner.insert(try!("cfgs".try_to())));
+    let id_target = try!(interner.insert(try!("target".try_to())));
 
     let cfgs = {
         let cfgs = try!(eval.get_field(&expr, &Selector::Ident(id_cfgs), None));
@@ -86,7 +86,7 @@ fn flatten<D>(eval: &Eval<D>, expr: SExpr, diag: &D,
             let c = try!(eval.get_string(cfg));
             let c: Result<&NoNullStr> = interner.get(c).try_as_ref();
             let c = match c {
-                Ok(c) => try!(c.to_owned()),
+                Ok(c) => try!(c.try_to()),
                 Err(..) => {
                     diag.error(cfg.span, Error::InteriorNull);
                     eval.trace(cfg);
@@ -123,12 +123,12 @@ fn get_target<D>(eval: &Eval<D>, target: &SExpr, diag: &D, interner: &Interner,
 
     macro_rules! get_string {
         ($f:expr) => {{
-            let id = try!(interner.insert(try!($f.to_owned())));
+            let id = try!(interner.insert(try!($f.try_to())));
             let e = try!(eval.get_field(target, &Selector::Ident(id), None));
             let s = try!(eval.get_string(&e));
             let s: Result<&NoNullStr> = interner.get(s).try_as_ref();
             match s {
-                Ok(s) => try!(s.to_owned()),
+                Ok(s) => try!(s.try_to()),
                 Err(..) => {
                     diag.error(e.span, Error::InteriorNull);
                     eval.trace(&e);
@@ -138,12 +138,12 @@ fn get_target<D>(eval: &Eval<D>, target: &SExpr, diag: &D, interner: &Interner,
         }}
     };
 
-    let crate_name = get_string!(b"crate_name");
-    let path = get_string!(b"path");
-    let name = get_string!(b"name");
+    let crate_name = get_string!("crate_name");
+    let path = get_string!("path");
+    let name = get_string!("name");
 
     let deps = {
-        let id = try!(interner.insert(try!(b"deps".to_owned())));
+        let id = try!(interner.insert(try!("deps".try_to())));
         let deps = try!(eval.get_field(target, &Selector::Ident(id), None));
         let deps = try!(eval.get_list(&deps));
         let mut rdeps = try!(Vec::with_capacity(deps.len()));
@@ -375,8 +375,7 @@ pub fn std<D>(eval: Rc<Eval<D>>, interner: &Interner, cfgs: &[Interned],
         ($func:ident) => {{
             let func = try!(lrsb_funcs::$func(eval.to()));
             let func = bispan!(Expr_::Fn(FnType::BuiltIn(func)));
-            let func_ident = try!(interner.insert(stringify!($func)
-                                                     .to_owned().unwrap().into()));
+            let func_ident = try!(interner.insert(stringify!($func).try_to().unwrap()));
             fields.set(func_ident, (Span::built_in(), func));
         }}
     }
@@ -393,7 +392,7 @@ pub fn std<D>(eval: Rc<Eval<D>>, interner: &Interner, cfgs: &[Interned],
             els.push(e);
         }
         let list = bispan!(Expr_::List(Rc::new().unwrap().set(els)));
-        let ident = try!(interner.insert(b"cfgs".to_owned().unwrap()));
+        let ident = try!(interner.insert("cfgs".try_to().unwrap()));
         fields.set(ident, (Span::built_in(), list));
     }
 
@@ -404,7 +403,7 @@ pub fn std<D>(eval: Rc<Eval<D>>, interner: &Interner, cfgs: &[Interned],
             els.push(e);
         }
         let list = bispan!(Expr_::List(Rc::new().unwrap().set(els)));
-        let ident = try!(interner.insert(b"path".to_owned().unwrap()));
+        let ident = try!(interner.insert("path".try_to().unwrap()));
         fields.set(ident, (Span::built_in(), list));
     }
 
