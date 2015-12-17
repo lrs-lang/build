@@ -449,7 +449,11 @@ fn parse_args() -> Args {
         target: target,
         cfgs: cfgs,
         makefile: makefile,
-        tail: env::args().consume(getopts.used()+1).collect(),
+        tail: {
+            let mut vec = Vec::new();
+            vec.extend(env::args().consume(getopts.used()+1));
+            vec
+        },
     }
 }
 
