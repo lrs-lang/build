@@ -354,7 +354,7 @@ impl<D: Diagnostic> Lexer<D> {
         }
 
         if let b'0' ... b'9' = cur {
-            let (val, len) = i64::parse_bytes_init(self.chars.text().as_bytes()).unwrap();
+            let (val, len) = i64::parse_bytes_init(self.chars.text()).unwrap();
             if let Some((next_pos, next)) = self.chars.peek(len) {
                 if let b'0' ... b'9' = next {
                     self.diagnostic.error(Span::new(self.lo+cur_pos, self.lo+next_pos),
@@ -449,8 +449,7 @@ impl<D: Diagnostic> Lexer<D> {
                 b'u' => {
                     try!(self.next_left_brace());
                     let before = self.pos();
-                    let (val, len) = try!(HexU32::parse_bytes_init(
-                                                    self.chars.text().as_bytes()));
+                    let (val, len) = try!(HexU32::parse_bytes_init(self.chars.text()));
                     if len == 0 {
                         self.diagnostic.error(Span { lo: self.pos(), hi: self.pos()+1, },
                                               Error::FoundString("codepoint", "?"));
