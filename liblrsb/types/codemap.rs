@@ -30,11 +30,12 @@ impl Codemap {
     ///
     /// [argument, src]
     /// The contents of the file.
-    pub fn add_file(&mut self, name: CString, src: Rc<Vec<u8>>) {
-        let mut cur_pos = match self.files.last() {
+    pub fn add_file(&mut self, name: CString, src: Rc<Vec<u8>>) -> u32 {
+        let old_pos = match self.files.last() {
             Some(f) => *f.lines.last().unwrap(),
             _ => 0,
         };
+        let mut cur_pos = old_pos;
         let mut lines = Vec::new();
         lines.push(cur_pos);
         {
@@ -55,6 +56,7 @@ impl Codemap {
             lines: lines,
         };
         self.files.push(map);
+        old_pos
     }
 
     /// Retrieves the file associated with a span.
@@ -145,8 +147,9 @@ impl<'a> Iterator for LineIter<'a> {
         if self.start == self.end {
             None
         } else {
-            let lo = self.src.lines[self.start];
-            let hi = self.src.lines[self.start+1];
+            let base = self.src.lines[0];
+            let lo = self.src.lines[self.start] - base;
+            let hi = self.src.lines[self.start+1] - base;
             let line = &self.src.src[lo as usize..hi as usize];
             self.start += 1;
             Some((self.start as u32, line.as_ref()))

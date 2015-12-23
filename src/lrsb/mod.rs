@@ -6,7 +6,7 @@ use std::rc::{Rc, Arc};
 use std::sync::{Mutex};
 use std::share::{RefCell, RefCellStatus};
 use std::fd::{STDERR, FdIo};
-use std::string::{NoNullStr, CStr, CString};
+use std::string::{NoNullStr, CStr};
 use std::{mem, error, tty};
 use std::hashmap::{HashMap};
 
@@ -29,10 +29,8 @@ pub fn parse(build_path: &NoNullStr, original: &NoNullStr, cfgs: &[&CStr],
     let interner = try!(Rc::new()).set(try!(Interner::new()));
     let input = try!(Rc::new()).set(v);
     let map = {
-        let mut path: CString = try!(build_path.try_to());
-        try!(path.push_file("LRSBuild"));
         let mut map = Codemap::new();
-        map.add_file(path, input.to());
+        map.add_file(try!("LRSBuild".try_to()), input.to());
         try!(Rc::new()).set(RefCell::new(map))
     };
     let diag = try!(Rc::new()).set(FdDiag::new(map.to(), interner.to(), STDERR));
@@ -66,7 +64,8 @@ pub fn parse(build_path: &NoNullStr, original: &NoNullStr, cfgs: &[&CStr],
 
     let eval = try!(Rc::new()).set(Eval::new(diag.to(), interner.to()));
 
-    let expr = try!(std_apl(tree, eval.to(), &interner, &cfgs, &path));
+    let expr = try!(std_apl(tree, eval.to(), interner.to(), diag.to(), build_path,
+                    map.to(), &cfgs, &path));
 
     flatten(&eval, expr, &diag, &interner)
 }
@@ -347,6 +346,12 @@ impl Diagnostic for FdDiag {
             Error::InteriorNull => err!(move |mut w| {
                 write!(w, "string has interior null")
             }),
+            Error::AbsolutePath => err!(move |mut w| {
+                write!(w, "absolute path required")
+            }),
+            Error::CannotOpen(path) => err!(move |mut w| {
+                write!(w, "cannot open file: {:?}", self.interner.get(path))
+            }),
         }
     }
 
@@ -365,7 +370,8 @@ macro_rules! bispan {
     ($e:expr) => { try!(Expr::spanned(Span::built_in(), $e)) }
 }
 
-pub fn std<D>(eval: Rc<Eval<D>>, interner: &Interner, cfgs: &[Interned],
+pub fn std<D>(eval: Rc<Eval<D>>, interner: Rc<Interner>, diag: Rc<D>,
+              build_path: &NoNullStr, codemap: Rc<RefCell<Codemap>>, cfgs: &[Interned],
               path: &[Interned]) -> Result<SExpr>
     where D: Diagnostic + 'static,
 {
@@ -375,7 +381,7 @@ pub fn std<D>(eval: Rc<Eval<D>>, interner: &Interner, cfgs: &[Interned],
         ($func:ident) => {{
             let func = try!(lrsb_funcs::$func(eval.to()));
             let func = bispan!(Expr_::Fn(FnType::BuiltIn(func)));
-            let func_ident = try!(interner.insert(stringify!($func).try_to().unwrap()));
+            let func_ident = try!(interner.insert(try!(stringify!($func).try_to())));
             fields.set(func_ident, (Span::built_in(), func));
         }}
     }
@@ -384,6 +390,14 @@ pub fn std<D>(eval: Rc<Eval<D>>, interner: &Interner, cfgs: &[Interned],
     add_fn!(assert);
     add_fn!(contains);
     add_fn!(filter);
+
+    {
+        let func = try!(lrsb_funcs::include(eval.to(), diag.to(), interner.to(),
+                                            try!(build_path.try_to()), codemap.to()));
+        let func = bispan!(Expr_::Fn(FnType::BuiltIn(func)));
+        let func_ident = try!(interner.insert(try!("include".try_to())));
+        fields.set(func_ident, (Span::built_in(), func));
+    }
 
     {
         let mut els = vec!();
@@ -410,9 +424,10 @@ pub fn std<D>(eval: Rc<Eval<D>>, interner: &Interner, cfgs: &[Interned],
     Ok(bispan!(Expr_::Set(try!(Rc::new()).set(fields), false)))
 }
 
-pub fn std_apl<D>(expr: SExpr, eval: Rc<Eval<D>>, interner: &Interner, cfgs: &[Interned],
+pub fn std_apl<D>(expr: SExpr, eval: Rc<Eval<D>>, interner: Rc<Interner>, diag: Rc<D>,
+                  build_path: &NoNullStr, codemap: Rc<RefCell<Codemap>>, cfgs: &[Interned],
                   path: &[Interned]) -> Result<SExpr>
     where D: Diagnostic + 'static,
 {
-    Ok(bispan!(Expr_::Apl(expr, try!(std(eval, interner, cfgs, path)))))
+    Ok(bispan!(Expr_::Apl(expr, try!(std(eval, interner, diag, build_path, codemap, cfgs, path)))))
 }

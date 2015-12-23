@@ -375,6 +375,14 @@ pub trait BuiltInFn: Leak {
     fn apply<'a>(&self, expr: &'a SExpr) -> Result<Expr_>;
 }
 
+impl<T> BuiltInFn for T
+    where T: Fn(&SExpr) -> Result<Expr_> + Leak,
+{
+    fn apply<'a>(&self, expr: &'a SExpr) -> Result<Expr_> {
+        self(expr)
+    }
+}
+
 #[derive(To, TryTo)]
 pub enum FnType {
     BuiltIn(Rc<BuiltInFn>),

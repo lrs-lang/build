@@ -2,9 +2,10 @@
 
 -include config.mk
 
-all: lrs_build
+all: lrs_build lrsbi
 
 -include lrs_build.d
+-include obj/lrsbi.d
 -include obj/lrsb_types.d
 -include obj/lrsb_util.d
 -include obj/lrsb_lexer.d
@@ -30,11 +31,14 @@ obj/liblrsb_parser.rlib: obj/liblrsb_types.rlib obj/liblrsb_lexer.rlib
 obj/liblrsb_eval.rlib: obj/liblrsb_types.rlib
 	lrsc $(lib_ops) --emit=link,dep-info -L obj --out-dir obj liblrsb/eval/lib.rs
 
-obj/liblrsb_funcs.rlib: obj/liblrsb_types.rlib obj/liblrsb_eval.rlib
+obj/liblrsb_funcs.rlib: obj/liblrsb_types.rlib obj/liblrsb_eval.rlib obj/liblrsb_lexer.rlib obj/liblrsb_parser.rlib
 	lrsc $(lib_ops) --emit=link,dep-info -L obj --out-dir obj liblrsb/funcs/lib.rs
 
 lrs_build: obj/liblrsb_types.rlib obj/liblrsb_util.rlib obj/liblrsb_lexer.rlib obj/liblrsb_parser.rlib obj/liblrsb_eval.rlib obj/liblrsb_funcs.rlib
 	lrsc $(bin_ops) --emit=link,dep-info -L obj src/main.rs
+
+obj/lrsbi: obj/liblrsb_types.rlib obj/liblrsb_util.rlib obj/liblrsb_lexer.rlib obj/liblrsb_parser.rlib obj/liblrsb_eval.rlib obj/liblrsb_funcs.rlib
+	lrsc $(bin_ops) --emit=link,dep-info -L obj --out-dir obj lrsbi/src/main.rs
 
 clean:
 	rm -rf obj

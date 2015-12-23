@@ -49,4 +49,6 @@ pub enum Error {
     InteriorNull,
 
     DupSetField(Span),
+    AbsolutePath,
+    CannotOpen(Interned),
 }

@@ -89,6 +89,7 @@ impl<D: Diagnostic> Eval<D> {
         let val = res.val.val.borrow();
         match *val {
             Expr_::List(ref l) => Ok(l.to()),
+            Expr_::Null => Ok(try!(Rc::new()).set(vec!())),
             _ => {
                 self.diag.error(expr.span, Error::FoundExpr("list", res.to()));
                 self.trace(expr);
@@ -201,6 +202,9 @@ impl<D: Diagnostic> Eval<D> {
                     Ok(None)
                 }
             },
+            (&Expr_::Null, _) => {
+                Ok(None)
+            },
             _ => {
                 self.diag.error(expr.span,
                     if let &Selector::Ident(..) = sel {
@@ -231,6 +235,7 @@ impl<D: Diagnostic> Eval<D> {
         let val = res.val.val.borrow();
         match *val {
             Expr_::Set(ref fields, _) => Ok(fields.to()),
+            Expr_::Null => Ok(try!(Rc::new()).set(try!(HashMap::new()))),
             _ => {
                 self.diag.error(expr.span, Error::FoundExpr("set", res.to()));
                 self.trace(expr);

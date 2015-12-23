@@ -5,9 +5,11 @@
 use std::rc::{Rc};
 use std::share::{RefCellStatus};
 use std::{error};
+use std::hashmap::{HashMap};
 
 use types::diagnostic::{Diagnostic, Error};
 use types::scope::{Scope};
+use types::interner::{Interned};
 use types::tree::{SExpr, Expr_, FnArg, Selector, FnType, BuiltInFn};
 
 use {Eval};
@@ -115,7 +117,7 @@ impl<D: Diagnostic> Eval<D> {
             Expr_::Let(..) | Expr_::Set(_, true) =>
             {
                 drop(borrow);
-                self.force_bind(expr, &mut try!(Scope::new()), false);
+                try!(self.force_bind(expr, &mut try!(Scope::new()), false));
                 self.force(expr)
             },
             Expr_::Cond(..) =>
@@ -133,6 +135,15 @@ impl<D: Diagnostic> Eval<D> {
                 abort!();
             },
         }
+    }
+
+    pub fn force_with(&self, expr: &SExpr, ids: &HashMap<Interned, SExpr>) -> Result {
+        let mut scope = try!(Scope::new());
+        for (id, ex) in ids {
+            try!(scope.bind(*id, ex.to()));
+        }
+        try!(self.force_bind(expr, &mut scope, false));
+        self.force(expr)
     }
 
     fn force_int(&self, expr: &SExpr) -> Result {
@@ -677,7 +688,7 @@ impl<D: Diagnostic> Eval<D> {
                         },
                         _ => abort!(),
                     }
-                    self.trace(&expr);
+                    self.trace(&set);
                     return Err(error::InvalidSequence);
                 }
             } else {

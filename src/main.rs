@@ -2,7 +2,7 @@
 // License, version 2.0. If a copy of the GPL was not distributed with
 // this program, You can obtain one at http://gnu.org.
 
-#![crate_name = "lrs_build2"]
+#![crate_name = "lrs_build"]
 #![feature(default_type_parameter_fallback)]
 
 extern crate lrsb_types;
