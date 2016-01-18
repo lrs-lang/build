@@ -48,8 +48,8 @@ impl<D: Diagnostic> Parser<D> {
     ///
     /// This succeeds if the whole content of the lexer is a single valid expression.
     pub fn parse(&mut self) -> Result<SExpr> {
-        let expr = try!(self.parse_expr());
-        if let Some(t) = try!(self.lexer.try_next()) {
+        let expr = self.parse_expr()?;
+        if let Some(t) = self.lexer.try_next()? {
             self.diagnostic.error(t.span , Error::FoundToken("end-of-file", t));
             return Err(error::InvalidSequence);
         }
@@ -63,7 +63,7 @@ impl<D: Diagnostic> Parser<D> {
         'outer: loop {
             // Step 1: Check for unary operators.
             loop {
-                let cur = try!(self.lexer.peek(0));
+                let cur = self.lexer.peek(0)?;
                 if match cur.val {
                     Token::Not => { stack.push_op(Op::Not(cur.span.lo)); true },
                     Token::Minus => { stack.push_op(Op::UnMin(cur.span.lo)); true },
@@ -76,7 +76,7 @@ impl<D: Diagnostic> Parser<D> {
             }
 
             // Step 2: Read an atomic expression.
-            stack.push_expr(try!(self.parse_atomic()));
+            stack.push_expr(self.parse_atomic()?);
 
             // Step 3: Read an operator.
             //
@@ -84,9 +84,9 @@ impl<D: Diagnostic> Parser<D> {
             // unary postfix operators. Those are followed by an operator or end the
             // expression.
             loop {
-                if try!(self.lexer.eof()) { break 'outer; }
+                if self.lexer.eof()? { break 'outer; }
 
-                let next = try!(self.lexer.peek(0));
+                let next = self.lexer.peek(0)?;
                 let op = match next.val {
                     Token::Implies      => Op::Impl,
                     Token::OrOr         => Op::Or,
@@ -125,9 +125,9 @@ impl<D: Diagnostic> Parser<D> {
 
                     stack.next_op(op);
                     let expr = stack.pop_expr();
-                    let path = try!(self.parse_attr_path());
+                    let path = self.parse_attr_path()?;
                     let span = Span::new(expr.span.lo, path.span.hi);
-                    let expr = try!(Expr::spanned(span, Expr_::Test(expr, path)));
+                    let expr = Expr::spanned(span, Expr_::Test(expr, path))?;
                     stack.push_expr(expr);
                 } else if op == Op::Select {
                     // Select has the form
@@ -144,18 +144,18 @@ impl<D: Diagnostic> Parser<D> {
 
                     stack.next_op(op);
                     let expr = stack.pop_expr();
-                    let path = try!(self.parse_attr_path());
-                    let (hi, alt) = match try!(self.lexer.try_peek(0)) {
+                    let path = self.parse_attr_path()?;
+                    let (hi, alt) = match self.lexer.try_peek(0)? {
                         Some(Spanned { val: Token::Or, .. }) => {
                             self.lexer.next();
-                            let alt = try!(self.parse_expr());
+                            let alt = self.parse_expr()?;
                             (alt.span.hi, Some(alt))
                         },
                         _ => (path.span.hi, None),
                     };
                     let span = Span::new(expr.span.lo, hi);
                     let expr = Expr_::Select(expr, path, alt);
-                    let expr = try!(Expr::spanned(span, expr));
+                    let expr = Expr::spanned(span, expr)?;
                     stack.push_expr(expr);
                 } else {
                     stack.push_op(op);
@@ -191,7 +191,7 @@ impl<D: Diagnostic> Parser<D> {
     /// * Conditional
     /// * `(expr)`
     fn parse_atomic(&mut self) -> Result<SExpr> {
-        let token = try!(self.lexer.peek(0));
+        let token = self.lexer.peek(0)?;
 
         if !token.val.starts_expr() {
             self.diagnostic.error(token.span , Error::FoundToken("expression", token));
@@ -202,7 +202,7 @@ impl<D: Diagnostic> Parser<D> {
         // Check if this is a function definition.
         match token.val {
             Token::Ident(..) => {
-                match try!(self.lexer.try_peek(1)) {
+                match self.lexer.try_peek(1)? {
                     // ident:
                     Some(Spanned { val: Token::Colon, .. }) => return self.parse_fn(),
                     // ident @
@@ -211,12 +211,12 @@ impl<D: Diagnostic> Parser<D> {
                 }
             },
             Token::LeftBrace => {
-                if let Some(one) = try!(self.lexer.try_peek(1)) {
+                if let Some(one) = self.lexer.try_peek(1)? {
                     if one.val == Token::DotDot {
                         // { ..            }
                         return self.parse_fn();
                     } else if let Token::Ident(..) = one.val {
-                        if let Some(two) = try!(self.lexer.try_peek(2)) {
+                        if let Some(two) = self.lexer.try_peek(2)? {
                             if two.val == Token::Comma || two.val == Token::Questionmark {
                                 // { ident,                }
                                 // { ident ?               }
@@ -224,7 +224,7 @@ impl<D: Diagnostic> Parser<D> {
                             }
                         }
                     } else if one.val == Token::RightBrace {
-                        if let Some(two) = try!(self.lexer.try_peek(2)) {
+                        if let Some(two) = self.lexer.try_peek(2)? {
                             if two.val == Token::Colon {
                                 // { }:
                                 return self.parse_fn();
@@ -247,8 +247,8 @@ impl<D: Diagnostic> Parser<D> {
             Token::LeftBrace => self.parse_set(),
             Token::LeftParen => {
                 let opening = self.lexer.next().unwrap();
-                let mut expr = try!(self.parse_expr());
-                let closing = try!(self.lexer.next_right_paren());
+                let mut expr = self.parse_expr()?;
+                let closing = self.lexer.next_right_paren()?;
                 expr.span.lo = opening.span.lo;
                 expr.span.hi = closing.span.hi;
                 Ok(expr)
@@ -258,33 +258,33 @@ impl<D: Diagnostic> Parser<D> {
     }
 
     fn parse_string_part(&mut self) -> Result<SExpr> {
-        let token = try!(self.lexer.next());
+        let token = self.lexer.next()?;
         let mut expr = match token.val {
-            Token::StringPart(s) => try!(Expr::spanned(token.span, Expr_::String(s))),
+            Token::StringPart(s) => Expr::spanned(token.span, Expr_::String(s))?,
             _ => abort!(),
         };
         let mut end = false;
         while !end {
-            let tmp = try!(self.parse_expr());
+            let tmp = self.parse_expr()?;
             let span = Span::new(expr.span.lo, tmp.span.hi);
-            let sfy = try!(Expr::spanned(tmp.span, Expr_::Stringify(tmp)));
-            expr = try!(Expr::spanned(span, Expr_::Concat(expr, sfy)));
+            let sfy = Expr::spanned(tmp.span, Expr_::Stringify(tmp))?;
+            expr = Expr::spanned(span, Expr_::Concat(expr, sfy))?;
 
-            let tmp = try!(self.lexer.cont_string());
+            let tmp = self.lexer.cont_string()?;
             let id = match tmp.val {
                 Token::StringPart(id) => id,
                 Token::String(id) => { end = true; id },
                 _ => abort!(),
             };
-            let tmp = try!(Expr::spanned(tmp.span, Expr_::String(id)));
+            let tmp = Expr::spanned(tmp.span, Expr_::String(id))?;
             let span = Span::new(expr.span.lo, tmp.span.hi);
-            expr = try!(Expr::spanned(span, Expr_::Concat(expr, tmp)));
+            expr = Expr::spanned(span, Expr_::Concat(expr, tmp))?;
         }
         Ok(expr)
     }
 
     fn parse_selector(&mut self) -> Result<SExpr> {
-        let next = try!(self.lexer.next());
+        let next = self.lexer.next()?;
         let sel = match next.val {
             Token::Ident(i) => Selector::Ident(i),
             Token::Integer(i) => {
@@ -295,8 +295,8 @@ impl<D: Diagnostic> Parser<D> {
                 Selector::Integer(i as usize)
             }
             Token::LeftParen => {
-                let expr = try!(self.parse_expr());
-                try!(self.lexer.next_right_paren());
+                let expr = self.parse_expr()?;
+                self.lexer.next_right_paren()?;
                 Selector::Expr(expr)
             }
             _ => {
@@ -320,9 +320,9 @@ impl<D: Diagnostic> Parser<D> {
     /// ----
     fn parse_attr_path(&mut self) -> Result<SExpr> {
         let mut path = Vec::new();
-        path.push(try!(self.parse_selector()));
+        path.push(self.parse_selector()?);
         loop {
-            let next = match try!(self.lexer.try_peek(0)) {
+            let next = match self.lexer.try_peek(0)? {
                 Some(n) => n,
                 _ => break,
             };
@@ -330,11 +330,11 @@ impl<D: Diagnostic> Parser<D> {
                 Token::Dot => self.lexer.next(),
                 _ => break,
             };
-            path.push(try!(self.parse_selector()));
+            path.push(self.parse_selector()?);
         }
         path.shrink_to_fit();
         let span = Span::new(path[0].span.lo, path.last().unwrap().span.hi);
-        let expr = Expr_::Path(try!(Rc::new()).set(path));
+        let expr = Expr_::Path(Rc::new()?.set(path));
         Expr::spanned(span, expr)
     }
 
@@ -371,7 +371,7 @@ impl<D: Diagnostic> Parser<D> {
             if second.val == Token::Colon {
                 self.lexer.next();
                 self.lexer.next();
-                let body = try!(self.parse_expr());
+                let body = self.parse_expr()?;
                 let arg = FnArg::Ident(id);
                 let span = Span::new(first.span.lo, body.span.hi);
                 let expr = Expr_::Fn(FnType::Normal(Spanned::new(first.span, arg), body));
@@ -382,9 +382,9 @@ impl<D: Diagnostic> Parser<D> {
             if second.val == Token::At {
                 self.lexer.next();
                 self.lexer.next();
-                let (pat_span, pat, wild) = try!(self.parse_fn_pat());
-                try!(self.lexer.next_colon());
-                let body = try!(self.parse_expr());
+                let (pat_span, pat, wild) = self.parse_fn_pat()?;
+                self.lexer.next_colon()?;
+                let body = self.parse_expr()?;
                 let arg_span = Span::new(first.span.lo, pat_span.hi);
                 let arg = FnArg::Pat(Some(Spanned::new(first.span, id)), pat, wild);
                 let span = Span::new(first.span.lo, body.span.hi);
@@ -399,9 +399,9 @@ impl<D: Diagnostic> Parser<D> {
 
         // Second case above.
         if first.val == Token::LeftBrace {
-            let (pat_span, pat, wild) = try!(self.parse_fn_pat());
-            try!(self.lexer.next_colon());
-            let body = try!(self.parse_expr());
+            let (pat_span, pat, wild) = self.parse_fn_pat()?;
+            self.lexer.next_colon()?;
+            let body = self.parse_expr()?;
             let arg = FnArg::Pat(None, pat, wild);
             let span = Span::new(pat_span.lo, body.span.hi);
             let expr = Expr_::Fn(FnType::Normal(Spanned::new(pat_span, arg), body));
@@ -429,11 +429,11 @@ impl<D: Diagnostic> Parser<D> {
         Result<(Span, Rc<HashMap<Interned, (Span, Option<SExpr>)>>, bool)>
     {
         let opening = self.lexer.next().unwrap();
-        let mut vars = try!(HashMap::<_, (Span, _)>::new());
+        let mut vars = HashMap::<_, (Span, _)>::new()?;
         let mut wild = false;
 
         loop {
-            let ident = try!(self.lexer.peek(0));
+            let ident = self.lexer.peek(0)?;
             let (ident, span) = match ident.val {
                 Token::Ident(i) => {
                     self.lexer.next();
@@ -451,16 +451,16 @@ impl<D: Diagnostic> Parser<D> {
                 },
             };
 
-            let next = try!(self.lexer.peek(0));
+            let next = self.lexer.peek(0)?;
             let alt = match next.val {
                 Token::Questionmark => {
                     self.lexer.next();
-                    Some(try!(self.parse_expr()))
+                    Some(self.parse_expr()?)
                 },
                 _ => None,
             };
 
-            match try!(vars.entry(&ident)) {
+            match vars.entry(&ident)? {
                 Entry::Occupied(e) => {
                     self.diagnostic.error(span, Error::DupSetField(e.0));
                     return Err(error::InvalidSequence);
@@ -468,7 +468,7 @@ impl<D: Diagnostic> Parser<D> {
                 Entry::Vacant(e) => e.set(ident, (span, alt)),
             };
 
-            let next = try!(self.lexer.peek(0));
+            let next = self.lexer.peek(0)?;
             match next.val {
                 Token::Comma => self.lexer.next(),
                 Token::RightBrace => break,
@@ -480,10 +480,10 @@ impl<D: Diagnostic> Parser<D> {
             };
         }
 
-        try!(vars.shrink_to_fit());
-        let closing = try!(self.lexer.next_right_brace());
+        vars.shrink_to_fit()?;
+        let closing = self.lexer.next_right_brace()?;
         let span = Span::new(opening.span.lo, closing.span.hi);
-        Ok((span, try!(Rc::new()).set(vars), wild))
+        Ok((span, Rc::new()?.set(vars), wild))
     }
 
     /// Parses a simple expression.
@@ -530,17 +530,17 @@ impl<D: Diagnostic> Parser<D> {
     /// ----
     fn parse_let(&mut self) -> Result<SExpr> {
         let let_ = self.lexer.next().unwrap();
-        let mut bindings = try!(HashMap::<_, (Span, _)>::new());
+        let mut bindings = HashMap::<_, (Span, _)>::new()?;
         loop {
-            if try!(self.lexer.peek(0)).val == Token::In {
+            if self.lexer.peek(0)?.val == Token::In {
                 self.lexer.next();
                 break;
             }
-            let (span, name) = try!(self.lexer.next_ident());
-            try!(self.lexer.next_assign());
-            let expr = try!(self.parse_expr());
-            try!(self.lexer.next_semicolon());
-            match try!(bindings.entry(&name)) {
+            let (span, name) = self.lexer.next_ident()?;
+            self.lexer.next_assign()?;
+            let expr = self.parse_expr()?;
+            self.lexer.next_semicolon()?;
+            match bindings.entry(&name)? {
                 Entry::Occupied(e) => {
                     self.diagnostic.error(span.span, Error::DupSetField(e.0));
                     return Err(error::InvalidSequence);
@@ -548,10 +548,10 @@ impl<D: Diagnostic> Parser<D> {
                 Entry::Vacant(e) => e.set(name, (span.span, expr)),
             };
         }
-        try!(bindings.shrink_to_fit());
-        let expr = try!(self.parse_expr());
+        bindings.shrink_to_fit()?;
+        let expr = self.parse_expr()?;
         let span = Span::new(let_.span.lo, expr.span.hi);
-        let expr = Expr_::Let(try!(Rc::new()).set(bindings), expr);
+        let expr = Expr_::Let(Rc::new()?.set(bindings), expr);
         Expr::spanned(span, expr)
     }
 
@@ -573,11 +573,11 @@ impl<D: Diagnostic> Parser<D> {
     /// ----
     fn parse_conditional(&mut self) -> Result<SExpr> {
         let if_ = self.lexer.next().unwrap();
-        let e1 = try!(self.parse_expr());
-        try!(self.lexer.next_then());
-        let e2 = try!(self.parse_expr());
-        try!(self.lexer.next_else());
-        let e3 = try!(self.parse_expr());
+        let e1 = self.parse_expr()?;
+        self.lexer.next_then()?;
+        let e2 = self.parse_expr()?;
+        self.lexer.next_else()?;
+        let e3 = self.parse_expr()?;
         let span = Span::new(if_.span.lo, e3.span.hi);
         Expr::spanned(span, Expr_::Cond(e1, e2, e3))
     }
@@ -603,11 +603,11 @@ impl<D: Diagnostic> Parser<D> {
         let start = self.lexer.next().unwrap();
         let mut els = Vec::new();
         loop {
-            if try!(self.lexer.peek(0)).val == Token::RightBracket {
+            if self.lexer.peek(0)?.val == Token::RightBracket {
                 break;
             }
-            els.push(try!(self.parse_expr()));
-            let next = try!(self.lexer.peek(0));
+            els.push(self.parse_expr()?);
+            let next = self.lexer.peek(0)?;
             match next.val {
                 Token::Comma => self.lexer.next(),
                 Token::RightBracket => break,
@@ -621,7 +621,7 @@ impl<D: Diagnostic> Parser<D> {
         let end = self.lexer.next().unwrap();
         let span = Span::new(start.span.lo, end.span.hi);
         els.shrink_to_fit();
-        Expr::spanned(span, Expr_::List(try!(Rc::new()).set(els)))
+        Expr::spanned(span, Expr_::List(Rc::new()?.set(els)))
     }
 
     /// Parses a set.
@@ -645,23 +645,23 @@ impl<D: Diagnostic> Parser<D> {
         let opening = self.lexer.next().unwrap();
         let rec = match opening.val {
             Token::Rec => {
-                try!(self.lexer.next_left_brace());
+                self.lexer.next_left_brace()?;
                 true
             },
             _ => false
         };
-        let mut fields = try!(HashMap::<_, (Span, _)>::new());
+        let mut fields = HashMap::<_, (Span, _)>::new()?;
         loop {
-            if try!(self.lexer.peek(0)).val == Token::RightBrace {
+            if self.lexer.peek(0)?.val == Token::RightBrace {
                 break;
             }
 
-            let next = try!(self.lexer.next());
+            let next = self.lexer.next()?;
             match next.val {
                 Token::Ident(ident) => {
-                    try!(self.lexer.next_assign());
-                    let expr = try!(self.parse_expr());
-                    match try!(fields.entry(&ident)) {
+                    self.lexer.next_assign()?;
+                    let expr = self.parse_expr()?;
+                    match fields.entry(&ident)? {
                         Entry::Occupied(e) => {
                             self.diagnostic.error(next.span, Error::DupSetField(e.0));
                             return Err(error::InvalidSequence);
@@ -671,20 +671,19 @@ impl<D: Diagnostic> Parser<D> {
                 },
                 Token::Inherit => {
                     loop {
-                        let next = try!(self.lexer.peek(0));
+                        let next = self.lexer.peek(0)?;
                         match next.val {
                             Token::Comma | Token::RightBrace => break,
                             Token::Ident(ident) => {
                                 self.lexer.next();
-                                match try!(fields.entry(&ident)) {
+                                match fields.entry(&ident)? {
                                     Entry::Occupied(e) => {
                                         self.diagnostic.error(next.span,
                                                               Error::DupSetField(e.0));
                                         return Err(error::InvalidSequence);
                                     },
                                     Entry::Vacant(e) => {
-                                        let ex = try!(Expr::spanned(next.span,
-                                                                    Expr_::Inherit));
+                                        let ex = Expr::spanned(next.span, Expr_::Inherit)?;
                                         e.set(ident, (next.span, ex));
                                     },
                                 };
@@ -705,7 +704,7 @@ impl<D: Diagnostic> Parser<D> {
                 },
             }
 
-            let next = try!(self.lexer.peek(0));
+            let next = self.lexer.peek(0)?;
             match next.val {
                 Token::Comma => self.lexer.next(),
                 Token::RightBrace => break,
@@ -717,9 +716,9 @@ impl<D: Diagnostic> Parser<D> {
                 },
             };
         }
-        let closing = try!(self.lexer.next_right_brace());
+        let closing = self.lexer.next_right_brace()?;
         let span = Span::new(opening.span.lo, closing.span.hi);
-        try!(fields.shrink_to_fit());
-        Expr::spanned(span, Expr_::Set(try!(Rc::new()).set(fields), rec))
+        fields.shrink_to_fit()?;
+        Expr::spanned(span, Expr_::Set(Rc::new()?.set(fields), rec))
     }
 }

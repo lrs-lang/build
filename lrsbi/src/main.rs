@@ -39,13 +39,13 @@ fn main() {
 
 fn main_() -> Result {
     let mut input = vec!();
-    let mut stdin = try!(BufReader::new(STDIN, 1024));
+    let mut stdin = BufReader::new(STDIN, 1024)?;
 
-    let interner = try!(Rc::new()).set(try!(Interner::new()));
-    let map = try!(Rc::new()).set(RefCell::new(Codemap::new()));
-    let diag = try!(Rc::new()).set(FdDiag::new(map.to(), interner.to(), STDERR));
-    let eval = try!(Rc::new()).set(Eval::new(diag.to(), interner.to()));
-    let mut ids = try!(HashMap::new());
+    let interner = Rc::new()?.set(Interner::new()?);
+    let map = Rc::new()?.set(RefCell::new(Codemap::new()));
+    let diag = Rc::new()?.set(FdDiag::new(map.to(), interner.to(), STDERR));
+    let eval = Rc::new()?.set(Eval::new(diag.to(), interner.to()));
+    let mut ids = HashMap::new()?;
     let mut iteration = 1;
 
     loop {
@@ -56,18 +56,17 @@ fn main_() -> Result {
         iteration += 1;
         term::set_fg_color(term::Color::Default);
         term::set_char_attr(term::CharAttr::Bold, false);
-        if try!(stdin.copy_until(&mut input, b'\n')) == 0 {
+        if stdin.copy_until(&mut input, b'\n')? == 0 {
             break;
         }
         if input.last() != Some(&b'\n') {
             input.push(b'\n');
         }
-        let input = try!(Rc::new()).set(try!(input.try_to()):Vec<_>);
-        let name = try!(try!(format!("<{}>", iteration - 1)).try_to());
+        let input = Rc::new()?.set(input.try_to()?:Vec<_>);
+        let name = format!("<{}>", iteration - 1)?.try_to()?;
         let lo = map.borrow_mut().add_file(name, input.to());
-        let mut lexer = Lexer::new(lo, input.to(), diag.to(), interner.to(),
-                                   try!("".try_to()));
-        let (first, second) = (try!(lexer.try_peek(0)), try!(lexer.try_peek(1)));
+        let mut lexer = Lexer::new(lo, input.to(), diag.to(), interner.to(), "".try_to()?);
+        let (first, second) = (lexer.try_peek(0)?, lexer.try_peek(1)?);
         let mut id = None;
         if let (Some(first), Some(second)) = (first, second) {
             if let (Token::Ident(i), Token::Assign) = (first.val, second.val) {

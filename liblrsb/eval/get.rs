@@ -26,7 +26,7 @@ impl<D: Diagnostic> Eval<D> {
     /// If the datatype expression is not a boolean, an error message is printed and an
     /// error is returned.
     pub fn get_bool(&self, expr: &SExpr) -> Result<bool> {
-        let res = try!(self.resolve(expr));
+        let res = self.resolve(expr)?;
         let val = res.val.val.borrow();
         match *val {
             Expr_::Bool(b) => Ok(b),
@@ -39,7 +39,7 @@ impl<D: Diagnostic> Eval<D> {
     }
 
     pub fn get_string(&self, expr: &SExpr) -> Result<Interned> {
-        let res = try!(self.resolve(expr));
+        let res = self.resolve(expr)?;
         let val = res.val.val.borrow();
         match *val {
             Expr_::String(s) => Ok(s),
@@ -62,7 +62,7 @@ impl<D: Diagnostic> Eval<D> {
     /// If the datatype expression is not an integer, an error message is printed and an
     /// error is returned.
     pub fn get_int(&self, expr: &SExpr) -> Result<i64> {
-        let res = try!(self.resolve(expr));
+        let res = self.resolve(expr)?;
         let val = res.val.val.borrow();
         match *val {
             Expr_::Integer(i) => Ok(i),
@@ -85,11 +85,11 @@ impl<D: Diagnostic> Eval<D> {
     /// If the datatype expression is not a list, an error message is printed and an error
     /// is returned.
     pub fn get_list(&self, expr: &SExpr) -> Result<Rc<Vec<SExpr>>> {
-        let res = try!(self.resolve(expr));
+        let res = self.resolve(expr)?;
         let val = res.val.val.borrow();
         match *val {
             Expr_::List(ref l) => Ok(l.to()),
-            Expr_::Null => Ok(try!(Rc::new()).set(vec!())),
+            Expr_::Null => Ok(Rc::new()?.set(vec!())),
             _ => {
                 self.diag.error(expr.span, Error::FoundExpr("list", res.to()));
                 self.trace(expr);
@@ -127,7 +127,7 @@ impl<D: Diagnostic> Eval<D> {
 
         let sel = match *selector {
             Selector::Expr(ref e) => {
-                let expr = try!(self.resolve(e));
+                let expr = self.resolve(e)?;
                 let res = expr.val.val.borrow();
                 match *res {
                     Expr_::String(s) => {
@@ -158,7 +158,7 @@ impl<D: Diagnostic> Eval<D> {
     pub fn get_field(&self, expr: &SExpr, selector: &Selector,
                      out: Option<&mut Selector>) -> Result<SExpr> {
         let mut eval_sel = Selector::Integer(0);
-        let field = try!(self.get_opt_field(expr, selector, Some(&mut eval_sel)));
+        let field = self.get_opt_field(expr, selector, Some(&mut eval_sel))?;
 
         if let Some(f) = field {
             return Ok(f);
@@ -181,7 +181,7 @@ impl<D: Diagnostic> Eval<D> {
     /// Like `get_field` but expects the selector to not be in expression form.
     fn get_field_(&self, expr: &SExpr, sel: &Selector,
                   out: Option<&mut Selector>) -> Result<Option<SExpr>> {
-        let res = try!(self.resolve(expr));
+        let res = self.resolve(expr)?;
         let val = res.val.val.borrow();
 
         match (&*val, sel) {
@@ -231,11 +231,11 @@ impl<D: Diagnostic> Eval<D> {
     /// is returned.
     pub fn get_fields(&self,
                       expr: &SExpr) -> Result<Rc<HashMap<Interned, (Span, SExpr)>>> {
-        let res = try!(self.resolve(expr));
+        let res = self.resolve(expr)?;
         let val = res.val.val.borrow();
         match *val {
             Expr_::Set(ref fields, _) => Ok(fields.to()),
-            Expr_::Null => Ok(try!(Rc::new()).set(try!(HashMap::new()))),
+            Expr_::Null => Ok(Rc::new()?.set(HashMap::new()?)),
             _ => {
                 self.diag.error(expr.span, Error::FoundExpr("set", res.to()));
                 self.trace(expr);
@@ -255,7 +255,7 @@ impl<D: Diagnostic> Eval<D> {
     /// If the datatype expression is not a function, an error message is printed and an
     /// error is returned.
     pub fn get_func(&self, expr: &SExpr) -> Result<FnType> {
-        let res = try!(self.resolve(expr));
+        let res = self.resolve(expr)?;
         let val = res.val.val.borrow();
         match *val {
             Expr_::Fn(ref f) => Ok(f.to()),

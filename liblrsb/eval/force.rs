@@ -117,7 +117,7 @@ impl<D: Diagnostic> Eval<D> {
             Expr_::Let(..) | Expr_::Set(_, true) =>
             {
                 drop(borrow);
-                try!(self.force_bind(expr, &mut try!(Scope::new()), false));
+                self.force_bind(expr, &mut Scope::new()?, false)?;
                 self.force(expr)
             },
             Expr_::Cond(..) =>
@@ -138,11 +138,11 @@ impl<D: Diagnostic> Eval<D> {
     }
 
     pub fn force_with(&self, expr: &SExpr, ids: &HashMap<Interned, SExpr>) -> Result {
-        let mut scope = try!(Scope::new());
+        let mut scope = Scope::new()?;
         for (id, ex) in ids {
-            try!(scope.bind(*id, ex.to()));
+            scope.bind(*id, ex.to())?;
         }
-        try!(self.force_bind(expr, &mut scope, false));
+        self.force_bind(expr, &mut scope, false)?;
         self.force(expr)
     }
 
@@ -151,17 +151,17 @@ impl<D: Diagnostic> Eval<D> {
 
         let new = match *val {
             Expr_::Add(ref l, ref r) => {
-                Expr_::Integer(try!(self.get_int(l)).wrapping_add(try!(self.get_int(r))))
+                Expr_::Integer(self.get_int(l)?.wrapping_add(self.get_int(r)?))
             }
             Expr_::Sub(ref l, ref r) => {
-                Expr_::Integer(try!(self.get_int(l)).wrapping_sub(try!(self.get_int(r))))
+                Expr_::Integer(self.get_int(l)?.wrapping_sub(self.get_int(r)?))
             }
             Expr_::Mul(ref l, ref r) => {
-                Expr_::Integer(try!(self.get_int(l)).wrapping_mul(try!(self.get_int(r))))
+                Expr_::Integer(self.get_int(l)?.wrapping_mul(self.get_int(r)?))
             }
             Expr_::Div(ref l, ref r) => {
-                let l = try!(self.get_int(l));
-                let rn = try!(self.get_int(r));
+                let l = self.get_int(l)?;
+                let rn = self.get_int(r)?;
                 if rn == 0 {
                     self.diag.error(r.span , Error::DivideByZero);
                     return Err(error::InvalidSequence);
@@ -169,8 +169,8 @@ impl<D: Diagnostic> Eval<D> {
                 Expr_::Integer(l / rn)
             }
             Expr_::Mod(ref l, ref r) => {
-                let l = try!(self.get_int(l));
-                let rn = try!(self.get_int(r));
+                let l = self.get_int(l)?;
+                let rn = self.get_int(r)?;
                 if rn == 0 {
                     self.diag.error(r.span , Error::DivideByZero);
                     return Err(error::InvalidSequence);
@@ -178,7 +178,7 @@ impl<D: Diagnostic> Eval<D> {
                 Expr_::Integer(l % rn)
             }
             Expr_::Neg(ref e) => {
-                Expr_::Integer(0i64.wrapping_sub(try!(self.get_int(e))))
+                Expr_::Integer(0i64.wrapping_sub(self.get_int(e)?))
             },
             _ => abort!(),
         };
@@ -193,34 +193,34 @@ impl<D: Diagnostic> Eval<D> {
 
         let new = match *val {
             Expr_::Gt(ref l, ref r) => {
-                Expr_::Bool(try!(self.get_int(l)) > try!(self.get_int(r)))
+                Expr_::Bool(self.get_int(l)? > self.get_int(r)?)
             },
             Expr_::Lt(ref l, ref r) => {
-                Expr_::Bool(try!(self.get_int(l)) < try!(self.get_int(r)))
+                Expr_::Bool(self.get_int(l)? < self.get_int(r)?)
             },
             Expr_::Ge(ref l, ref r) => {
-                Expr_::Bool(try!(self.get_int(l)) >= try!(self.get_int(r)))
+                Expr_::Bool(self.get_int(l)? >= self.get_int(r)?)
             },
             Expr_::Le(ref l, ref r) => {
-                Expr_::Bool(try!(self.get_int(l)) <= try!(self.get_int(r)))
+                Expr_::Bool(self.get_int(l)? <= self.get_int(r)?)
             },
             Expr_::Eq(ref l, ref r) => {
-                Expr_::Bool(try!(self.equal_to(r, l)))
+                Expr_::Bool(self.equal_to(r, l)?)
             },
             Expr_::Ne(ref l, ref r) => {
-                Expr_::Bool(!try!(self.equal_to(r, l)))
+                Expr_::Bool(!self.equal_to(r, l)?)
             },
             Expr_::Impl(ref l, ref r) => {
-                Expr_::Bool(!try!(self.get_bool(l)) || try!(self.get_bool(r)))
+                Expr_::Bool(!self.get_bool(l)? || self.get_bool(r)?)
             },
             Expr_::And(ref l, ref r) => {
-                Expr_::Bool(try!(self.get_bool(l)) && try!(self.get_bool(r)))
+                Expr_::Bool(self.get_bool(l)? && self.get_bool(r)?)
             }
             Expr_::Or(ref l, ref r) => {
-                Expr_::Bool(try!(self.get_bool(l)) || try!(self.get_bool(r)))
+                Expr_::Bool(self.get_bool(l)? || self.get_bool(r)?)
             }
             Expr_::Not(ref e) => {
-                Expr_::Bool(!try!(self.get_bool(e)))
+                Expr_::Bool(!self.get_bool(e)?)
             }
             Expr_::Test(ref s, ref path) => {
                 let mut set = s.clone();
@@ -228,7 +228,7 @@ impl<D: Diagnostic> Eval<D> {
                 let mut err_span = set.span;
                 while path.len() > 0 {
                     let selector = self.get_selector(&path[0]);
-                    set = match try!(self.get_opt_field(&set, &selector, None)) {
+                    set = match self.get_opt_field(&set, &selector, None)? {
                         Some(f) => f,
                         None => break,
                     };
@@ -249,18 +249,18 @@ impl<D: Diagnostic> Eval<D> {
         let mut val = expr.val.val.borrow_mut();
 
         let new = if let Expr_::Overlay(ref bottom, ref top) = *val {
-            let bottom = try!(self.get_fields(bottom));
-            let top = try!(self.get_fields(top));
+            let bottom = self.get_fields(bottom)?;
+            let top = self.get_fields(top)?;
 
-            let mut new = try!((*bottom).try_clone());
+            let mut new = (*bottom).try_clone()?;
 
             for (&id, &(span, ref val)) in &top {
                 new.set(id, (span, val.to()));
             }
 
-            try!(new.shrink_to_fit());
+            new.shrink_to_fit()?;
 
-            Expr_::Set(try!(Rc::new()).set(new), false)
+            Expr_::Set(Rc::new()?.set(new), false)
         } else {
             abort!();
         };
@@ -274,23 +274,23 @@ impl<D: Diagnostic> Eval<D> {
         let mut val = expr.val.val.borrow_mut();
 
         let new = if let Expr_::Concat(ref l, ref r) = *val {
-            let l = try!(self.resolve(l));
+            let l = self.resolve(l)?;
             let left = l.val.val.borrow();
             match *left {
                 Expr_::String(left) => {
-                    let right = try!(self.get_string(r));
-                    let new = try!(self.interner.concat(left, right));
+                    let right = self.get_string(r)?;
+                    let new = self.interner.concat(left, right)?;
                     Expr_::String(new)
                 },
                 Expr_::List(ref left) => {
-                    let right = try!(self.get_list(r));
+                    let right = self.get_list(r)?;
                     if right.len() == 0 {
                         Expr_::List(left.to())
                     } else {
-                        let mut left = try!((**left).try_clone());
+                        let mut left = (**left).try_clone()?;
                         left.reserve(right.len());
                         for el in &right { left.push(el.to()); }
-                        Expr_::List(try!(Rc::new()).set(left))
+                        Expr_::List(Rc::new()?.set(left))
                     }
                 },
                 _ => {
@@ -311,7 +311,7 @@ impl<D: Diagnostic> Eval<D> {
     fn force_bind(&self, expr: &SExpr, scope: &mut Scope<SExpr>, in_fn_body: bool) -> Result {
         macro_rules! resolve {
             ($a:expr) => {{
-                try!(self.force_bind($a, scope, in_fn_body))
+                self.force_bind($a, scope, in_fn_body)?
             }};
         }
 
@@ -400,7 +400,7 @@ impl<D: Diagnostic> Eval<D> {
         {
             if let Expr_::Fn(FnType::Normal(ref pat, ref body)) = *val {
                 match pat.val {
-                    FnArg::Ident(id) => try!(scope.hide(id)),
+                    FnArg::Ident(id) => scope.hide(id)?,
                     FnArg::Pat(id, ref fields, _) => {
                         for (_, &(_, ref field_alt)) in &*fields {
                             if let Some(ref field_alt) = *field_alt {
@@ -408,10 +408,10 @@ impl<D: Diagnostic> Eval<D> {
                             }
                         }
                         for (&field_name, _) in &*fields {
-                            try!(scope.hide(field_name));
+                            scope.hide(field_name)?;
                         }
                         if let Some(id) = id {
-                            try!(scope.hide(id.val));
+                            scope.hide(id.val)?;
                         }
                     },
                 }
@@ -523,11 +523,11 @@ impl<D: Diagnostic> Eval<D> {
         let mut val = expr.val.val.borrow_mut();
 
         let new = if let Expr_::Cond(ref cond, ref then, ref el) = *val {
-            if try!(self.get_bool(cond)) {
-                try!(self.force(then));
+            if self.get_bool(cond)? {
+                self.force(then)?;
                 then.to()
             } else {
-                try!(self.force(el));
+                self.force(el)?;
                 el.to()
             }
         } else {
@@ -545,13 +545,13 @@ impl<D: Diagnostic> Eval<D> {
             Expr_::Stringify(ref e) => e.to(),
             _ => abort!(),
         };
-        let dst = try!(self.resolve(&e));
+        let dst = self.resolve(&e)?;
         let dst = dst.val.val.borrow();
         match *dst {
             Expr_::String(..) => *val = Expr_::Resolved(None, e),
             Expr_::Integer(v) => {
-                let s = try!(format!("{}", v));
-                let id = try!(self.interner.insert(s));
+                let s = format!("{}", v)?;
+                let id = self.interner.insert(s)?;
                 *val = Expr_::String(id);
             },
             _ => {
@@ -569,23 +569,23 @@ impl<D: Diagnostic> Eval<D> {
             _ => abort!(),
         };
 
-        let (pat, body) = match try!(self.get_func(&func)) {
+        let (pat, body) = match self.get_func(&func)? {
             FnType::Normal(pat, body) => (pat, body),
             FnType::BuiltIn(func) => {
-                let res = try!(func.apply(&arg));
+                let res = func.apply(&arg)?;
                 *apl.val.val.borrow_mut() = res;
                 return Ok(());
             },
         };
 
-        let mut scope = try!(Scope::new());
+        let mut scope = Scope::new()?;
 
         match pat.val {
             FnArg::Ident(i) => {
                 scope.bind(i, arg);
             },
             FnArg::Pat(at, fields, wild) => {
-                let arg_fields = try!(self.get_fields(&arg));
+                let arg_fields = self.get_fields(&arg)?;
                 if !wild {
                     for (&id, _) in &*arg_fields {
                         if fields.get(&id).is_none() {
@@ -612,8 +612,8 @@ impl<D: Diagnostic> Eval<D> {
             },
         }
 
-        let new_body = try!(self.deep_copy(&body, &mut scope));
-        try!(self.force(&new_body));
+        let new_body = self.deep_copy(&body, &mut scope)?;
+        self.force(&new_body)?;
 
         *apl.val.val.borrow_mut() = Expr_::Resolved(None, new_body);
 
@@ -665,8 +665,7 @@ impl<D: Diagnostic> Eval<D> {
 
             while path.len() > 0 {
                 let selector = self.get_selector(&path[0]);
-                set = match try!(self.get_opt_field(&set, &selector,
-                                                    Some(&mut bad_path))) {
+                set = match self.get_opt_field(&set, &selector, Some(&mut bad_path))? {
                     Some(f) => f,
                     _ => break,
                 };
@@ -676,7 +675,7 @@ impl<D: Diagnostic> Eval<D> {
 
             if path.len() > 0 {
                 if let Some(alt) = alt {
-                    try!(self.force(&alt));
+                    self.force(&alt)?;
                     alt
                 } else {
                     match bad_path {
@@ -692,7 +691,7 @@ impl<D: Diagnostic> Eval<D> {
                     return Err(error::InvalidSequence);
                 }
             } else {
-                try!(self.force(&set));
+                self.force(&set)?;
                 set
             }
         };

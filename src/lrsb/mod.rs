@@ -26,26 +26,26 @@ use lrsb_types::tree::{SExpr, Expr_, Expr, Selector, FnType};
 
 pub fn parse(build_path: &NoNullStr, original: &NoNullStr, cfgs: &[&CStr],
              v: Vec<u8>) -> Result<Build> {
-    let interner = try!(Rc::new()).set(try!(Interner::new()));
-    let input = try!(Rc::new()).set(v);
+    let interner = Rc::new()?.set(Interner::new()?);
+    let input = Rc::new()?.set(v);
     let map = {
         let mut map = Codemap::new();
-        map.add_file(try!("LRSBuild".try_to()), input.to());
-        try!(Rc::new()).set(RefCell::new(map))
+        map.add_file("LRSBuild".try_to()?, input.to());
+        Rc::new()?.set(RefCell::new(map))
     };
-    let diag = try!(Rc::new()).set(FdDiag::new(map.to(), interner.to(), STDERR));
+    let diag = Rc::new()?.set(FdDiag::new(map.to(), interner.to(), STDERR));
 
     let tree = {
         let lexer = Lexer::new(0, input.to(), diag.to(), interner.to(),
-                               try!(build_path.try_to()));
+                               build_path.try_to()?);
         let mut parser = Parser::new(lexer, diag.to());
-        try!(parser.parse())
+        parser.parse()?
     };
 
     let cfgs = {
-        let mut ncfgs: Vec<_> = try!(Vec::with_capacity(cfgs.len()));
+        let mut ncfgs: Vec<_> = Vec::with_capacity(cfgs.len())?;
         for c in cfgs {
-            ncfgs.push(try!(interner.insert(try!((*c).try_to()))));
+            ncfgs.push(interner.insert((*c).try_to()?)?);
         }
         ncfgs
     };
@@ -55,17 +55,17 @@ pub fn parse(build_path: &NoNullStr, original: &NoNullStr, cfgs: &[&CStr],
         let mut path = original;
         while path != build_path {
             let (l, r) = path.split_path();
-            p.push(try!(interner.insert(try!(r.try_to()))));
+            p.push(interner.insert(r.try_to()?)?);
             path = l;
         }
         p.reverse();
         p
     };
 
-    let eval = try!(Rc::new()).set(Eval::new(diag.to(), interner.to()));
+    let eval = Rc::new()?.set(Eval::new(diag.to(), interner.to()));
 
-    let expr = try!(std_apl(tree, eval.to(), interner.to(), diag.to(), build_path,
-                    map.to(), &cfgs, &path));
+    let expr = std_apl(tree, eval.to(), interner.to(), diag.to(), build_path, map.to(),
+                       &cfgs, &path)?;
 
     flatten(&eval, expr, &diag, &interner)
 }
@@ -74,18 +74,18 @@ fn flatten<D>(eval: &Eval<D>, expr: SExpr, diag: &D,
               interner: &Interner) -> Result<Build>
     where D: Diagnostic,
 {
-    let id_cfgs = try!(interner.insert(try!("cfgs".try_to())));
-    let id_target = try!(interner.insert(try!("target".try_to())));
+    let id_cfgs = interner.insert("cfgs".try_to()?)?;
+    let id_target = interner.insert("target".try_to()?)?;
 
     let cfgs = {
-        let cfgs = try!(eval.get_field(&expr, &Selector::Ident(id_cfgs), None));
-        let cfgs = try!(eval.get_list(&cfgs));
-        let mut rcfgs = try!(Vec::with_capacity(cfgs.len()));
+        let cfgs = eval.get_field(&expr, &Selector::Ident(id_cfgs), None)?;
+        let cfgs = eval.get_list(&cfgs)?;
+        let mut rcfgs = Vec::with_capacity(cfgs.len())?;
         for cfg in &cfgs {
-            let c = try!(eval.get_string(cfg));
+            let c = eval.get_string(cfg)?;
             let c: Result<&NoNullStr> = interner.get(c).try_as_ref();
             let c = match c {
-                Ok(c) => try!(c.try_to()),
+                Ok(c) => c.try_to()?,
                 Err(..) => {
                     diag.error(cfg.span, Error::InteriorNull);
                     eval.trace(cfg);
@@ -97,10 +97,10 @@ fn flatten<D>(eval: &Eval<D>, expr: SExpr, diag: &D,
         rcfgs
     };
 
-    let mut obj_map = try!(HashMap::new());
+    let mut obj_map = HashMap::new()?;
 
-    let t = try!(eval.get_field(&expr, &Selector::Ident(id_target), None));
-    let target = try!(get_target(eval, &t, diag, interner, &mut obj_map));
+    let t = eval.get_field(&expr, &Selector::Ident(id_target), None)?;
+    let target = get_target(eval, &t, diag, interner, &mut obj_map)?;
 
     Ok(Build {
         cfgs: cfgs,
@@ -117,17 +117,17 @@ fn get_target<D>(eval: &Eval<D>, target: &SExpr, diag: &D, interner: &Interner,
         eval.trace(target);
         return Err(error::InvalidSequence);
     };
-    try!(eval.force(target));
+    eval.force(target)?;
     // let _borrow = target.val.val.borrow();
 
     macro_rules! get_string {
         ($f:expr) => {{
-            let id = try!(interner.insert(try!($f.try_to())));
-            let e = try!(eval.get_field(target, &Selector::Ident(id), None));
-            let s = try!(eval.get_string(&e));
+            let id = interner.insert($f.try_to()?)?;
+            let e = eval.get_field(target, &Selector::Ident(id), None)?;
+            let s = eval.get_string(&e)?;
             let s: Result<&NoNullStr> = interner.get(s).try_as_ref();
             match s {
-                Ok(s) => try!(s.try_to()),
+                Ok(s) => s.try_to()?,
                 Err(..) => {
                     diag.error(e.span, Error::InteriorNull);
                     eval.trace(&e);
@@ -142,17 +142,17 @@ fn get_target<D>(eval: &Eval<D>, target: &SExpr, diag: &D, interner: &Interner,
     let name = get_string!("name");
 
     let deps = {
-        let id = try!(interner.insert(try!("deps".try_to())));
-        let deps = try!(eval.get_field(target, &Selector::Ident(id), None));
-        let deps = try!(eval.get_list(&deps));
-        let mut rdeps = try!(Vec::with_capacity(deps.len()));
+        let id = interner.insert("deps".try_to()?)?;
+        let deps = eval.get_field(target, &Selector::Ident(id), None)?;
+        let deps = eval.get_list(&deps)?;
+        let mut rdeps = Vec::with_capacity(deps.len())?;
         for dep in &deps {
-            let dep = try!(eval.resolve(dep));
+            let dep = eval.resolve(dep)?;
             let addr = mem::addr::<RefCell<_>>(&dep.val.val);
             let obj = if let Some(res) = map.get(&addr).map(|d| d.to()) {
                 res
             } else {
-                let obj = try!(get_target(eval, &dep, diag, interner, map));
+                let obj = get_target(eval, &dep, diag, interner, map)?;
                 map.set(addr, obj.to());
                 obj
             };
@@ -171,7 +171,7 @@ fn get_target<D>(eval: &Eval<D>, target: &SExpr, diag: &D, interner: &Interner,
         build_status: BuildStatus::Pending,
     };
 
-    Ok(try!(Arc::new()).set(Mutex::new(obj)))
+    Ok(Arc::new()?.set(Mutex::new(obj)))
 }
 
 pub struct FdDiag {
@@ -367,7 +367,7 @@ impl Diagnostic for FdDiag {
 }
 
 macro_rules! bispan {
-    ($e:expr) => { try!(Expr::spanned(Span::built_in(), $e)) }
+    ($e:expr) => { Expr::spanned(Span::built_in(), $e)? }
 }
 
 pub fn std<D>(eval: Rc<Eval<D>>, interner: Rc<Interner>, diag: Rc<D>,
@@ -375,13 +375,13 @@ pub fn std<D>(eval: Rc<Eval<D>>, interner: Rc<Interner>, diag: Rc<D>,
               path: &[Interned]) -> Result<SExpr>
     where D: Diagnostic + 'static,
 {
-    let mut fields = try!(HashMap::new());
+    let mut fields = HashMap::new()?;
 
     macro_rules! add_fn {
         ($func:ident) => {{
-            let func = try!(lrsb_funcs::$func(eval.to()));
+            let func = lrsb_funcs::$func(eval.to())?;
             let func = bispan!(Expr_::Fn(FnType::BuiltIn(func)));
-            let func_ident = try!(interner.insert(try!(stringify!($func).try_to())));
+            let func_ident = interner.insert(stringify!($func).try_to()?)?;
             fields.set(func_ident, (Span::built_in(), func));
         }}
     }
@@ -392,10 +392,10 @@ pub fn std<D>(eval: Rc<Eval<D>>, interner: Rc<Interner>, diag: Rc<D>,
     add_fn!(filter);
 
     {
-        let func = try!(lrsb_funcs::include(eval.to(), diag.to(), interner.to(),
-                                            try!(build_path.try_to()), codemap.to()));
+        let func = lrsb_funcs::include(eval.to(), diag.to(), interner.to(),
+                                       build_path.try_to()?, codemap.to()?);
         let func = bispan!(Expr_::Fn(FnType::BuiltIn(func)));
-        let func_ident = try!(interner.insert(try!("include".try_to())));
+        let func_ident = interner.insert("include".try_to()?)?;
         fields.set(func_ident, (Span::built_in(), func));
     }
 
@@ -406,7 +406,7 @@ pub fn std<D>(eval: Rc<Eval<D>>, interner: Rc<Interner>, diag: Rc<D>,
             els.push(e);
         }
         let list = bispan!(Expr_::List(Rc::new().unwrap().set(els)));
-        let ident = try!(interner.insert("cfgs".try_to().unwrap()));
+        let ident = interner.insert("cfgs".try_to().unwrap())?;
         fields.set(ident, (Span::built_in(), list));
     }
 
@@ -417,11 +417,11 @@ pub fn std<D>(eval: Rc<Eval<D>>, interner: Rc<Interner>, diag: Rc<D>,
             els.push(e);
         }
         let list = bispan!(Expr_::List(Rc::new().unwrap().set(els)));
-        let ident = try!(interner.insert("path".try_to().unwrap()));
+        let ident = interner.insert("path".try_to().unwrap())?;
         fields.set(ident, (Span::built_in(), list));
     }
 
-    Ok(bispan!(Expr_::Set(try!(Rc::new()).set(fields), false)))
+    Ok(bispan!(Expr_::Set(Rc::new()?.set(fields), false)))
 }
 
 pub fn std_apl<D>(expr: SExpr, eval: Rc<Eval<D>>, interner: Rc<Interner>, diag: Rc<D>,
@@ -429,5 +429,5 @@ pub fn std_apl<D>(expr: SExpr, eval: Rc<Eval<D>>, interner: Rc<Interner>, diag: 
                   path: &[Interned]) -> Result<SExpr>
     where D: Diagnostic + 'static,
 {
-    Ok(bispan!(Expr_::Apl(expr, try!(std(eval, interner, diag, build_path, codemap, cfgs, path)))))
+    Ok(bispan!(Expr_::Apl(expr, std(eval, interner, diag, build_path, codemap, cfgs, path)?)))
 }

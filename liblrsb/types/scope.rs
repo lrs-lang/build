@@ -42,7 +42,7 @@ impl<T: To> Scope<T> {
     /// Creates a new scope.
     pub fn new() -> Result<Scope<T>> {
         Ok(Scope {
-            names: try!(HashMap::new())
+            names: HashMap::new()?
         })
     }
 
@@ -53,7 +53,7 @@ impl<T: To> Scope<T> {
     /// Every identifier can be pushed multiple times. The later values shadow the earlier
     /// values.
     pub fn bind(&mut self, name: Interned, val: T) -> Result {
-        match try!(self.names.entry(&name)) {
+        match self.names.entry(&name)? {
             Entry::Occupied(mut o) => o.push(Some(val)),
             Entry::Vacant(v) => { v.set(name, vec!(Some(val))); },
         }
@@ -61,7 +61,7 @@ impl<T: To> Scope<T> {
     }
 
     pub fn hide(&mut self, name: Interned) -> Result {
-        match try!(self.names.entry(&name)) {
+        match self.names.entry(&name)? {
             Entry::Occupied(mut o) => o.push(None),
             Entry::Vacant(v) => { v.set(name, vec!(None)); },
         }

@@ -10,10 +10,10 @@ use types::interner::{Interner};
 use types::tree::{Expr, Expr_, FnArg, Selector, FnType};
 
 pub fn print_tree<W: Write>(e: &Expr, int: &Interner, mut w: &mut W) -> Result {
-    let mut map = try!(HashMap::new());
+    let mut map = HashMap::new()?;
     let mut id = 0;
-    try!(write!(w, "digraph {{ graph [ordering=\"out\"];"));
-    try!(print_tree_(e, int, w, &mut id, &mut map));
+    write!(w, "digraph {{ graph [ordering=\"out\"];")?;
+    print_tree_(e, int, w, &mut id, &mut map)?;
     write!(w, "}}")
 }
 
@@ -24,8 +24,8 @@ fn print_tree_<W: Write>(e: &Expr, int: &Interner, mut w: &mut W, id: &mut u32,
     }
     macro_rules! unary {
         ($label:expr, $ex:expr) => {{
-            try!(write!(w, "{} [shape=\"box\", label=\"{}\"]; {} -> {};", id, $label,
-                        id, *id+1));
+            write!(w, "{} [shape=\"box\", label=\"{}\"]; {} -> {};", id, $label, id,
+                   *id+1)?;
             *id += 1;
             pt!($ex)
         }}
@@ -34,12 +34,12 @@ fn print_tree_<W: Write>(e: &Expr, int: &Interner, mut w: &mut W, id: &mut u32,
     macro_rules! binary {
         ($label:expr, $left:expr, $right:expr) => {{
             let sid = *id;
-            try!(write!(w, "{} [shape=\"box\", label=\"{}\"]; {} -> {};", id, $label,
-                        id, sid+1));
+            write!(w, "{} [shape=\"box\", label=\"{}\"]; {} -> {};", id, $label, id,
+                   sid+1)?;
             *id += 1;
-            try!(pt!($left));
+            pt!($left)?;
             *id += 1;
-            try!(write!(w, "{} -> {};", sid, id));
+            write!(w, "{} -> {};", sid, id)?;
             pt!($right)
         }}
     }
@@ -63,32 +63,31 @@ fn print_tree_<W: Write>(e: &Expr, int: &Interner, mut w: &mut W, id: &mut u32,
         },
         Expr_::Resolved(i, ref e) => {
             if let Some(i) = i {
-                try!(write!(w, "{} [label=\"{}\"];", id, int.get(i)));
+                write!(w, "{} [label=\"{}\"];", id, int.get(i))?;
             } else {
-                try!(write!(w, "{} [shape=\"box\", label=\"resolved\"];", id));
+                write!(w, "{} [shape=\"box\", label=\"resolved\"];", id)?;
             }
             if let Some(val) = map.get(&mem::addr::<RefCell<_>>(&*e.val.val)).map(|v| *v) {
                 write!(w, "{} -> {};", id, val)
             } else {
-                try!(write!(w, "{} -> {};", id, *id+1));
+                write!(w, "{} -> {};", id, *id+1)?;
                 *id += 1;
                 pt!(&e.val)
             }
         },
         Expr_::Set(ref els, rec) => {
             if rec {
-                try!(write!(w, "{} [shape=\"box\", label=\"rec set\"];", id));
+                write!(w, "{} [shape=\"box\", label=\"rec set\"];", id)?;
             } else {
-                try!(write!(w, "{} [shape=\"box\", label=\"set\"];", id));
+                write!(w, "{} [shape=\"box\", label=\"set\"];", id)?;
             }
             let sid = *id;
             for el in &**els {
                 *id += 1;
-                try!(write!(w, "{} [label=\"{}\"];{} -> {};", id, int.get(*el.0), sid,
-                            id));
-                try!(write!(w, "{} -> {};", id, *id+1));
+                write!(w, "{} [label=\"{}\"];{} -> {};", id, int.get(*el.0), sid, id)?;
+                write!(w, "{} -> {};", id, *id+1)?;
                 *id += 1;
-                try!(pt!(&(el.1).1.val));
+                pt!(&(el.1).1.val)?;
             }
             Ok(())
         },
@@ -113,15 +112,14 @@ fn print_tree_<W: Write>(e: &Expr, int: &Interner, mut w: &mut W, id: &mut u32,
         Expr_::Neg(ref e) => { unary!("-", e) },
         Expr_::Cond(ref cond, ref then, ref el) => {
             let sid = *id;
-            try!(write!(w, "{} [shape=\"box\", label=\"if\"];{} -> {};", id, id,
-                        sid + 1));
+            write!(w, "{} [shape=\"box\", label=\"if\"];{} -> {};", id, id, sid + 1)?;
             *id += 1;
-            try!(pt!(cond));
+            pt!(cond)?;
             *id += 1;
-            try!(write!(w, "{} -> {};", sid, id));
-            try!(pt!(then));
+            write!(w, "{} -> {};", sid, id)?;
+            pt!(then)?;
             *id += 1;
-            try!(write!(w, "{} -> {};", sid, id));
+            write!(w, "{} -> {};", sid, id)?;
             pt!(el)
         },
         Expr_::Bool(b) => {
@@ -132,11 +130,11 @@ fn print_tree_<W: Write>(e: &Expr, int: &Interner, mut w: &mut W, id: &mut u32,
         },
         Expr_::Path(ref path) => {
             let sid = *id;
-            try!(write!(w, "{} [shape=\"box\", label=\"path\"];", sid));
+            write!(w, "{} [shape=\"box\", label=\"path\"];", sid)?;
             for seg in path {
                 *id += 1;
-                try!(write!(w, "{} -> {};", sid, id));
-                try!(pt!(seg));
+                write!(w, "{} -> {};", sid, id)?;
+                pt!(seg)?;
             }
             Ok(())
         },
@@ -149,38 +147,37 @@ fn print_tree_<W: Write>(e: &Expr, int: &Interner, mut w: &mut W, id: &mut u32,
         },
         Expr_::Test(ref e, ref path) => {
             let sid = *id;
-            try!(write!(w, "{} [shape=\"box\", label=\"test\"];{} -> {};", sid, sid,
-                        sid + 1));
+            write!(w, "{} [shape=\"box\", label=\"test\"];{} -> {};", sid, sid, sid + 1)?;
             *id += 1;
-            try!(pt!(e));
+            pt!(e)?;
             *id += 1;
-            try!(write!(w, "{} -> {};", sid, id));
+            write!(w, "{} -> {};", sid, id)?;
             pt!(path)
         },
         Expr_::Select(ref e, ref path, ref alt) => {
             let sid = *id;
-            try!(write!(w, "{} [shape=\"box\", label=\"select\"];{} -> {};", sid, sid,
-                        sid + 1));
+            write!(w, "{} [shape=\"box\", label=\"select\"];{} -> {};", sid, sid,
+                   sid + 1)?;
             *id += 1;
-            try!(pt!(e));
+            pt!(e)?;
             *id += 1;
-            try!(write!(w, "{} -> {};", sid, id));
-            try!(pt!(path));
+            write!(w, "{} -> {};", sid, id)?;
+            pt!(path)?;
             if let Some(ref alt) = *alt {
                 *id += 1;
-                try!(write!(w, "{} -> {};", sid, id));
-                try!(pt!(alt));
+                write!(w, "{} -> {};", sid, id)?;
+                pt!(alt)?;
             }
             Ok(())
         },
         Expr_::Stringify(ref e) => { unary!("stringify", e) },
         Expr_::List(ref els) => {
-            try!(write!(w, "{} [shape=\"box\", label=\"list\"];", id));
+            write!(w, "{} [shape=\"box\", label=\"list\"];", id)?;
             let sid = *id;
             for el in els {
                 *id += 1;
-                try!(write!(w, "{} -> {};", sid, id));
-                try!(pt!(el));
+                write!(w, "{} -> {};", sid, id)?;
+                pt!(el)?;
             }
             Ok(())
         },
@@ -188,49 +185,47 @@ fn print_tree_<W: Write>(e: &Expr, int: &Interner, mut w: &mut W, id: &mut u32,
             let sid = *id;
             *id += 1;
             let vid = *id;
-            try!(write!(w, "{} [shape=\"box\", label=\"let\"]; {} -> {};", sid, sid,
-                        vid));
-            try!(write!(w, "{} [shape=\"box\", label=\"vars\"];", vid));
+            write!(w, "{} [shape=\"box\", label=\"let\"]; {} -> {};", sid, sid, vid)?;
+            write!(w, "{} [shape=\"box\", label=\"vars\"];", vid)?;
             for el in lets {
                 *id += 1;
-                try!(write!(w, "{} [label=\"{}\"];{} -> {}; {} -> {};", id,
-                            int.get(*el.0), vid, id, id, *id+1));
+                write!(w, "{} [label=\"{}\"];{} -> {}; {} -> {};", id, int.get(*el.0),
+                       vid, id, id, *id+1)?;
                 *id += 1;
-                try!(pt!(&(el.1).1.val));
+                pt!(&(el.1).1.val)?;
             }
             *id += 1;
-            try!(write!(w, "{} -> {};", sid, id));
+            write!(w, "{} -> {};", sid, id)?;
             pt!(e)
         },
         Expr_::Fn(FnType::Normal(ref arg, ref body)) => {
             let sid = *id;
             *id += 1;
-            try!(write!(w, "{} [shape=\"box\", label=\"fn\"]; {} -> {};", sid, sid,
-                        id));
+            write!(w, "{} [shape=\"box\", label=\"fn\"]; {} -> {};", sid, sid, id)?;
             match arg.val {
                 FnArg::Ident(i) => {
-                    try!(write!(w, "{} [label=\"{}\"];", id, int.get(i)))
+                    write!(w, "{} [label=\"{}\"];", id, int.get(i))?
                 },
                 FnArg::Pat(i, ref args, wild) => {
                     let name = match i {
                         Some(i) => int.get(i.val),
                         _ => "".as_ref(),
                     };
-                    try!(write!(w, "{} [shape=\"box\", label=\"{} @\"];", id, name));
+                    write!(w, "{} [shape=\"box\", label=\"{} @\"];", id, name)?;
                     let aid = *id;
                     for arg in args {
                         *id += 1;
-                        try!(write!(w, "{} [label=\"{}\"];{} -> {};", id,
-                                    int.get(*arg.0), aid, id));
+                        write!(w, "{} [label=\"{}\"];{} -> {};", id, int.get(*arg.0), aid,
+                               id)?;
                     }
                     if wild {
                         *id += 1;
-                        try!(write!(w, "{} [label=\"..\"];{} -> {};", id, aid, id));
+                        write!(w, "{} [label=\"..\"];{} -> {};", id, aid, id)?;
                     }
                 },
             }
             *id += 1;
-            try!(write!(w, "{} -> {};", sid, id));
+            write!(w, "{} -> {};", sid, id)?;
             pt!(body)
         },
         Expr_::Fn(FnType::BuiltIn(..)) => {

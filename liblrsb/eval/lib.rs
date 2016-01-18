@@ -74,9 +74,9 @@ impl<D: Diagnostic> Eval<D> {
     }
 
     pub fn equal_to(&self, left: &SExpr, right: &SExpr) -> Result<bool> {
-        let l = try!(self.resolve(left));
+        let l = self.resolve(left)?;
         let l = l.val.val.borrow();
-        let r = try!(self.resolve(right));
+        let r = self.resolve(right)?;
         let r = r.val.val.borrow();
         match (&*l, &*r) {
             (&Expr_::Integer(l), &Expr_::Integer(r)) => Ok(l == r),
@@ -97,7 +97,7 @@ impl<D: Diagnostic> Eval<D> {
     /// function recursively resolves these references and returns the datatype
     /// expression.
     pub fn resolve(&self, expr: &SExpr) -> Result<SExpr> {
-        try!(self.force(expr));
+        self.force(expr)?;
 
         let mut expr = expr.clone();
         loop {
@@ -113,7 +113,7 @@ impl<D: Diagnostic> Eval<D> {
     pub fn deep_copy(&self, target: &SExpr, scope: &mut Scope<SExpr>) -> Result<SExpr> {
         macro_rules! copy {
             ($e:expr) => {
-                try!(self.deep_copy($e, scope))
+                self.deep_copy($e, scope)?
             }
         }
         macro_rules! new {
@@ -225,15 +225,15 @@ impl<D: Diagnostic> Eval<D> {
             },
             Expr_::List(ref els) =>
             {
-                let mut nels = try!(Vec::with_capacity(els.len()));
+                let mut nels = Vec::with_capacity(els.len())?;
                 for el in &*els {
                     nels.push(copy!(el));
                 }
-                Expr_::List(try!(Rc::new()).set(nels))
+                Expr_::List(Rc::new()?.set(nels))
             },
             Expr_::Set(ref fields, rec) =>
             {
-                let mut nfields = try!(HashMap::with_capacity(fields.size()));
+                let mut nfields = HashMap::with_capacity(fields.size())?;
 
                 if rec {
                     for (&id, &(_, ref val)) in fields {
@@ -261,10 +261,10 @@ impl<D: Diagnostic> Eval<D> {
                     }
                 }
 
-                Expr_::Set(try!(Rc::new()).set(nfields), rec)
+                Expr_::Set(Rc::new()?.set(nfields), rec)
             }
             Expr_::Let(ref fields, ref body) => {
-                let mut nfields = try!(HashMap::with_capacity(fields.size()));
+                let mut nfields = HashMap::with_capacity(fields.size())?;
 
                 for (&id, _) in fields {
                     scope.hide(id);
@@ -279,17 +279,17 @@ impl<D: Diagnostic> Eval<D> {
                     scope.pop(id);
                 }
 
-                Expr_::Let(try!(Rc::new()).set(nfields), nbody)
+                Expr_::Let(Rc::new()?.set(nfields), nbody)
             }
             Expr_::Path(ref segs) =>
             {
-                let mut nsegs = try!(Vec::with_capacity(segs.len()));
+                let mut nsegs = Vec::with_capacity(segs.len())?;
 
                 for seg in &*segs {
                     nsegs.push(copy!(seg));
                 }
 
-                Expr_::Path(try!(Rc::new()).set(nsegs))
+                Expr_::Path(Rc::new()?.set(nsegs))
             }
             Expr_::Selector(ref s) =>
             {
@@ -320,7 +320,7 @@ impl<D: Diagnostic> Eval<D> {
             Expr_::Fn(FnType::Normal(Spanned{span, val: FnArg::Pat(id, ref fields, wild)},
                                      ref body)) =>
             {
-                let mut nfields = try!(HashMap::with_capacity(fields.size()));
+                let mut nfields = HashMap::with_capacity(fields.size())?;
                 for (&id, &(span, ref alt)) in &*fields {
                     nfields.set(id, match *alt {
                         Some(ref alt) => (span, Some(copy!(alt))),
@@ -342,7 +342,7 @@ impl<D: Diagnostic> Eval<D> {
                     scope.pop(id.val);
                 }
 
-                let pat = FnArg::Pat(id, try!(Rc::new()).set(nfields), wild);
+                let pat = FnArg::Pat(id, Rc::new()?.set(nfields), wild);
                 Expr_::Fn(FnType::Normal(Spanned::new(span, pat), nbody))
             }
         };

@@ -51,12 +51,12 @@ impl Expr {
     /// Creates a new reference-counted expression from an expression.
     pub fn new(expr: Expr_) -> Result<Expr> {
         Ok(Expr {
-            val: try!(Rc::new()).set(RefCell::new(expr)),
+            val: Rc::new()?.set(RefCell::new(expr)),
         })
     }
 
     pub fn spanned(span: Span, expr: Expr_) -> Result<Spanned<Expr>> {
-        Ok(Spanned::new(span, try!(Expr::new(expr))))
+        Ok(Spanned::new(span, Expr::new(expr)?))
     }
 
     /// Returns whether this is a inherit expression.

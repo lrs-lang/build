@@ -82,7 +82,7 @@ pub struct Lexer<D: Diagnostic> {
 
 macro_rules! next_t {
     ($slf:expr, $pat:pat, $name:expr) => {
-        match try!($slf.next()) {
+        match $slf.next()? {
             t @ Spanned { val: $pat, .. } => Ok(t),
             t => {
                 $slf.diagnostic.error(t.span, Error::FoundToken($name, t));
@@ -132,7 +132,7 @@ impl<D: Diagnostic> Lexer<D> {
     }
 
     pub fn eof(&mut self) -> Result<bool> {
-        Ok(try!(self.try_peek(0)).is_none())
+        Ok(self.try_peek(0)?.is_none())
     }
 
     fn unexpected_eof<T>(&self) -> Result<T> {
@@ -142,7 +142,7 @@ impl<D: Diagnostic> Lexer<D> {
     }
 
     pub fn peek(&mut self, n: usize) -> Result<SToken> {
-        match try!(self.try_peek(n)) {
+        match self.try_peek(n)? {
             Some(t) => Ok(t),
             _ => self.unexpected_eof(),
         }
@@ -151,7 +151,7 @@ impl<D: Diagnostic> Lexer<D> {
     pub fn try_peek(&mut self, n: usize) -> Result<Option<SToken>> {
         if self.peek.len() <= n {
             for _ in 0..(n + 1 - self.peek.len()) {
-                match try!(self.real_next()) {
+                match self.real_next()? {
                     Some(c) => self.peek.push_right(c),
                     _ => return Ok(None),
                 }
@@ -161,7 +161,7 @@ impl<D: Diagnostic> Lexer<D> {
     }
 
     pub fn next_ident(&mut self) -> Result<(SToken, Interned)> {
-        let t = try!(self.next()); 
+        let t = self.next()?; 
         match t.val {
             Token::Ident(id) => Ok((t, id)),
             _ => {
@@ -204,7 +204,7 @@ impl<D: Diagnostic> Lexer<D> {
     }
 
     pub fn next(&mut self) -> Result<SToken> {
-        match try!(self.try_next()) {
+        match self.try_next()? {
             Some(t) => Ok(t),
             _ => self.unexpected_eof(),
         }
@@ -385,8 +385,8 @@ impl<D: Diagnostic> Lexer<D> {
                     break;
                 }
             }
-            let ident = try!(self.chars.text()[..i].try_to());
-            let ident = try!(self.interner.insert(ident));
+            let ident = self.chars.text()[..i].try_to()?;
+            let ident = self.interner.insert(ident)?;
             for _ in 0..i { self.chars.next(); }
             return Ok(Some(Spanned::new(Span::new(self.lo+cur_pos, self.pos()),
                                         Token::Ident(ident))));
@@ -404,7 +404,7 @@ impl<D: Diagnostic> Lexer<D> {
     }
 
     pub fn cont_string(&mut self) -> Result<SToken> {
-        match try!(self.string(true)) {
+        match self.string(true)? {
             Some(t) => Ok(t),
             _ => self.unexpected_eof(),
         }
@@ -412,7 +412,7 @@ impl<D: Diagnostic> Lexer<D> {
 
     fn string(&mut self, is_cont: bool) -> Result<Option<SToken>> {
         let start = if is_cont {
-            let b = try!(self.next_right_brace());
+            let b = self.next_right_brace()?;
             self.chars.peek.clear();
             self.chars.pos = (b.span.hi - self.lo) as usize;
             self.peek.clear();
@@ -429,7 +429,7 @@ impl<D: Diagnostic> Lexer<D> {
                 break;
             }
             if cur != b'\\' {
-                try!(res.try_push(cur));
+                res.try_push(cur)?;
                 continue;
             }
             let (pos, cur) = match self.chars.next() {
@@ -447,9 +447,9 @@ impl<D: Diagnostic> Lexer<D> {
                 b'n' => res.try_push(b'\n'),
                 b't' => res.try_push(b'\t'),
                 b'u' => {
-                    try!(self.next_left_brace());
+                    self.next_left_brace()?;
                     let before = self.pos();
-                    let (val, len) = try!(HexU32::parse_bytes_init(self.chars.text()));
+                    let (val, len) = HexU32::parse_bytes_init(self.chars.text())?;
                     if len == 0 {
                         self.diagnostic.error(Span { lo: self.pos(), hi: self.pos()+1, },
                                               Error::FoundString("codepoint", "?"));
@@ -457,7 +457,7 @@ impl<D: Diagnostic> Lexer<D> {
                     }
                     for _ in 0..len { self.chars.next(); }
                     let after = self.pos();
-                    try!(self.next_right_brace());
+                    self.next_right_brace()?;
                     let chr = match char::from_u32(val.0) {
                         Some(c) => c,
                         _ => {
@@ -471,7 +471,7 @@ impl<D: Diagnostic> Lexer<D> {
                 },
                 b'd' => res.push_all(&self.dir),
                 b'{' => {
-                    let id = try!(self.interner.insert(res));
+                    let id = self.interner.insert(res)?;
                     let span = Span::new(start, esc_pos);
                     return Ok(Some(Spanned::new(span, Token::StringPart(id))));
                 },
@@ -481,9 +481,9 @@ impl<D: Diagnostic> Lexer<D> {
                     return Err(error::InvalidSequence);
                 },
             };
-            try!(res);
+            res?;
         }
-        let id = try!(self.interner.insert(res));
+        let id = self.interner.insert(res)?;
         Ok(Some(Spanned::new(Span::new(start, self.pos()), Token::String(id))))
     }
 }

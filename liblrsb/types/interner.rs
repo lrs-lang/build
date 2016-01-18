@@ -47,7 +47,7 @@ impl Interner {
         Ok(Interner {
             data: Cell::new(Inner {
                 strings: Vec::new(),
-                ids: try!(CompactMap::new()),
+                ids: CompactMap::new()?,
             }),
         })
     }
@@ -67,7 +67,7 @@ impl Interner {
         let inner = self.inner();
         let pos = {
             let strr: &'static _ = unsafe { mem::cast(&*val) };
-            match try!(inner.ids.entry(&strr)) {
+            match inner.ids.entry(&strr)? {
                 Entry::Vacant(v) => {
                     let pos = inner.strings.len();
                     inner.strings.push(val);
@@ -104,9 +104,9 @@ impl Interner {
     /// of the left and right parts.
     pub fn concat(&self, left: Interned, right: Interned) -> Result<Interned> {
         let tmp: &[u8] = self.get(left).as_ref();
-        let mut l: Vec<u8> = try!(tmp.try_to());
+        let mut l: Vec<u8> = tmp.try_to()?;
         let r = self.get(right).as_ref();
-        try!(l.push_all(r));
+        l.push_all(r)?;
         self.insert(l)
     }
 }
