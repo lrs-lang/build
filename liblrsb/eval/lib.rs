@@ -227,7 +227,7 @@ impl<D: Diagnostic> Eval<D> {
             {
                 let mut nels = try!(Vec::with_capacity(els.len()));
                 for el in &*els {
-                    nels.push(copy!(el));
+                    try!(nels.push(copy!(el)));
                 }
                 Expr_::List(try!(Rc::new()).set(nels))
             },
@@ -238,7 +238,7 @@ impl<D: Diagnostic> Eval<D> {
                 if rec {
                     for (&id, &(_, ref val)) in fields {
                         if !val.is_inherit() {
-                            scope.hide(id);
+                            try!(scope.hide(id));
                         }
                     }
                 }
@@ -267,7 +267,7 @@ impl<D: Diagnostic> Eval<D> {
                 let mut nfields = try!(HashMap::with_capacity(fields.size()));
 
                 for (&id, _) in fields {
-                    scope.hide(id);
+                    try!(scope.hide(id));
                 }
 
                 for (&id, &(span, ref val)) in fields {
@@ -286,7 +286,7 @@ impl<D: Diagnostic> Eval<D> {
                 let mut nsegs = try!(Vec::with_capacity(segs.len()));
 
                 for seg in &*segs {
-                    nsegs.push(copy!(seg));
+                    try!(nsegs.push(copy!(seg)));
                 }
 
                 Expr_::Path(try!(Rc::new()).set(nsegs))
@@ -311,7 +311,7 @@ impl<D: Diagnostic> Eval<D> {
             }
             Expr_::Fn(FnType::Normal(Spanned { span, val: FnArg::Ident(id) }, ref body)) =>
             {
-                scope.hide(id);
+                try!(scope.hide(id));
                 let nbody = copy!(body);
                 scope.pop(id);
 
@@ -329,10 +329,10 @@ impl<D: Diagnostic> Eval<D> {
                 }
 
                 for (&id, _) in &*fields {
-                    scope.hide(id);
+                    try!(scope.hide(id));
                 }
                 if let Some(id) = id {
-                    scope.hide(id.val);
+                    try!(scope.hide(id.val));
                 }
                 let nbody = copy!(body);
                 for (&id, _) in &*fields {

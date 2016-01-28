@@ -38,7 +38,7 @@ pub fn to_list<D>(eval: Rc<Eval<D>>) -> Result<Rc<BuiltInFn>>
         let fields = try!(eval.get_fields(e));
         let mut list = try!(Vec::with_capacity(fields.size()));
         for (_, &(_, ref val)) in &fields {
-            list.push(val.to());
+            try!(list.push(val.to()));
         }
         Ok(Expr_::List(try!(Rc::new()).set(list)))
     };
@@ -98,7 +98,7 @@ pub fn filter<D>(eval: Rc<Eval<D>>) -> Result<Rc<BuiltInFn>>
                 let span = Span::new(olist.span.lo, cond.span.hi);
                 let expr = try!(Expr::spanned(span, Expr_::Apl(cond.to(), el.to())));
                 if try!(eval.get_bool(&expr)) {
-                    nlist.push(el.to());
+                    try!(nlist.push(el.to()));
                 }
             }
             Ok(Expr_::List(try!(Rc::new()).set(nlist)))
@@ -132,7 +132,7 @@ pub fn include<D>(eval: Rc<Eval<D>>, diag: Rc<D>, interner: Rc<Interner>, cwd: V
                 },
             };
             let mut vec = vec!();
-            try!(vec.read_to_eof(file));
+            let _ = try!(vec.read_to_eof(file));
             try!(Rc::new()).set(vec)
         };
         let rel_path = if path.starts_with(&cwd) {

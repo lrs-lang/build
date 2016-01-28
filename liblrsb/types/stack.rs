@@ -30,8 +30,7 @@ impl Stack {
 
     /// Pushes an expression onto the stack.
     pub fn push_expr(&mut self, expr: SExpr) -> Result {
-        try!(self.expr.reserve(1));
-        self.expr.push(expr);
+        try!(self.expr.push(expr));
         Ok(())
     }
 
@@ -47,8 +46,7 @@ impl Stack {
     /// Pushes an operator onto the stack.
     pub fn push_op(&mut self, nop: Op) -> Result {
         try!(self.next_op(nop));
-        try!(self.op.reserve(1));
-        self.op.push(nop);
+        try!(self.op.push(nop));
         Ok(())
     }
 
@@ -128,8 +126,7 @@ impl Stack {
         };
         let span = Span::new(left.span.lo, right.span.hi);
         let expr = try!(Expr::spanned(span, expr(left, right)));
-        self.expr.push(expr);
-        Ok(())
+        self.expr.push(expr)
     }
 
     fn combine_unary(&mut self) -> Result {
@@ -144,7 +141,6 @@ impl Stack {
         };
         let span = Span::new(lo, arg.span.hi);
         let expr = try!(Expr::spanned(span, expr(arg)));
-        self.expr.push(expr);
-        Ok(())
+        self.expr.push(expr)
     }
 }

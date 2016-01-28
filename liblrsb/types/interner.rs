@@ -70,8 +70,8 @@ impl Interner {
             match try!(inner.ids.entry(&strr)) {
                 Entry::Vacant(v) => {
                     let pos = inner.strings.len();
-                    inner.strings.push(val);
-                    v.set(strr, pos);
+                    try!(inner.strings.push(val));
+                    let _ = v.set(strr, pos);
                     pos
                 },
                 Entry::Occupied(o) => *o,

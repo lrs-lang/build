@@ -164,7 +164,7 @@ impl<D: Diagnostic> Eval<D> {
             return Ok(f);
         }
 
-        out.map(|o| *o = eval_sel.to());
+        let _ = out.map(|o| *o = eval_sel.to());
 
         self.diag.error(expr.span,
             match eval_sel {
@@ -191,14 +191,14 @@ impl<D: Diagnostic> Eval<D> {
                         return Ok(Some(val.to()));
                     }
                 }
-                out.map(|o| *o = Selector::Ident(name));
+                let _ = out.map(|o| *o = Selector::Ident(name));
                 Ok(None)
             },
             (&Expr_::List(ref fields), &Selector::Integer(i)) => {
                 if fields.len() > i {
                     Ok(Some(fields[i].to()))
                 } else {
-                    out.map(|o| *o = Selector::Integer(i));
+                    let _ = out.map(|o| *o = Selector::Integer(i));
                     Ok(None)
                 }
             },

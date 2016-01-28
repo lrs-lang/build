@@ -288,8 +288,8 @@ impl<D: Diagnostic> Eval<D> {
                         Expr_::List(left.to())
                     } else {
                         let mut left = try!((**left).try_clone());
-                        left.reserve(right.len());
-                        for el in &right { left.push(el.to()); }
+                        try!(left.reserve(right.len()));
+                        for el in &right { try!(left.push(el.to())); }
                         Expr_::List(try!(Rc::new()).set(left))
                     }
                 },
@@ -333,9 +333,9 @@ impl<D: Diagnostic> Eval<D> {
             if let Expr_::Let(ref fields, ref body) = *val {
                 for (&id, &(_, ref val)) in fields {
                     if in_fn_body {
-                        scope.hide(id);
+                        try!(scope.hide(id));
                     } else {
-                        scope.bind(id, val.to());
+                        try!(scope.bind(id, val.to()));
                     }
                 }
                 for (_, &(_, ref val)) in fields {
@@ -364,9 +364,9 @@ impl<D: Diagnostic> Eval<D> {
                 for (&id, &(_, ref val)) in fields {
                     if !val.is_inherit() {
                         if in_fn_body {
-                            scope.hide(id);
+                            try!(scope.hide(id));
                         } else {
-                            scope.bind(id, val.to());
+                            try!(scope.bind(id, val.to()));
                         }
                     }
                 }
@@ -415,7 +415,7 @@ impl<D: Diagnostic> Eval<D> {
                         }
                     },
                 }
-                self.force_bind(body, scope, true);
+                try!(self.force_bind(body, scope, true));
                 match pat.val {
                     FnArg::Ident(id) => scope.pop(id),
                     FnArg::Pat(id, ref fields, _) => {
@@ -582,7 +582,7 @@ impl<D: Diagnostic> Eval<D> {
 
         match pat.val {
             FnArg::Ident(i) => {
-                scope.bind(i, arg);
+                try!(scope.bind(i, arg));
             },
             FnArg::Pat(at, fields, wild) => {
                 let arg_fields = try!(self.get_fields(&arg));
@@ -597,9 +597,9 @@ impl<D: Diagnostic> Eval<D> {
                 }
                 for (&id, &(span, ref alt)) in &*fields {
                     if let Some(&(_, ref val)) = arg_fields.get(&id) {
-                        scope.bind(id, val.to());
+                        try!(scope.bind(id, val.to()));
                     } else if let Some(ref alt) = *alt {
-                        scope.bind(id, alt.to());
+                        try!(scope.bind(id, alt.to()));
                     } else {
                         self.diag.error(span, Error::FnMissingField(id));
                         self.trace(&arg);
@@ -607,7 +607,7 @@ impl<D: Diagnostic> Eval<D> {
                     }
                 }
                 if let Some(at) = at {
-                    scope.bind(at.val, arg.to());
+                    try!(scope.bind(at.val, arg.to()));
                 }
             },
         }

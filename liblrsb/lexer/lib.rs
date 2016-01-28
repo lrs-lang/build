@@ -32,6 +32,12 @@ impl CharStream {
         self.real_next()
     }
 
+    fn skip(&mut self, n: usize) {
+        for _ in 0..n {
+            let _ = self.next();
+        }
+    }
+
     fn real_next(&mut self) -> Option<(u32, u8)> {
         let head = &self.src[self.pos..];
         if head.len() > 0 {
@@ -116,7 +122,7 @@ impl<D: Diagnostic> Lexer<D> {
     fn skip_whitespace(&mut self) {
         loop {
             match self.chars.peek_char(0) {
-                Some(b' ') | Some(b'\t') | Some(b'\n')  => { self.chars.next(); },
+                Some(b' ') | Some(b'\t') | Some(b'\n') => self.chars.skip(1),
                 _ => break,
             }
         }
@@ -217,6 +223,12 @@ impl<D: Diagnostic> Lexer<D> {
         self.real_next()
     }
 
+    pub fn skip(&mut self, n: usize) {
+        for _ in 0..n {
+            let _ = self.try_next();
+        }
+    }
+
     fn real_next(&mut self) -> Result<Option<SToken>> {
         loop {
             self.skip_whitespace();
@@ -273,7 +285,7 @@ impl<D: Diagnostic> Lexer<D> {
         }
 
         if let Some((t, _)) = tkn {
-            self.chars.next();
+            self.chars.skip(1);
             ret!(t);
         }
 
@@ -307,8 +319,7 @@ impl<D: Diagnostic> Lexer<D> {
         }
 
         if let Some((t, two)) = tkn {
-            self.chars.next();
-            if two { self.chars.next(); }
+            self.chars.skip(1 + two as usize);
             ret!(t);
         }
 
@@ -349,7 +360,7 @@ impl<D: Diagnostic> Lexer<D> {
         keyword!(b"or", Or);
 
         if let Some((t, skip)) = tkn {
-            for _ in 0..skip { self.chars.next(); }
+            self.chars.skip(skip);
             ret!(t);
         }
 
@@ -362,7 +373,7 @@ impl<D: Diagnostic> Lexer<D> {
                     return Err(error::InvalidSequence);
                 }
             }
-            for _ in 0..len { self.chars.next(); }
+            self.chars.skip(len);
             return Ok(Some(Spanned::new(Span::new(self.lo+cur_pos, self.pos()),
                                         Token::Integer(val))));
         }
@@ -387,7 +398,7 @@ impl<D: Diagnostic> Lexer<D> {
             }
             let ident = try!(self.chars.text()[..i].try_to());
             let ident = try!(self.interner.insert(ident));
-            for _ in 0..i { self.chars.next(); }
+            self.chars.skip(i);
             return Ok(Some(Spanned::new(Span::new(self.lo+cur_pos, self.pos()),
                                         Token::Ident(ident))));
         }
@@ -419,7 +430,7 @@ impl<D: Diagnostic> Lexer<D> {
             self.pos()
         } else {
             let pos = self.pos();
-            self.chars.next(); // eat the "
+            self.chars.skip(1); // eat the "
             pos
         };
 
@@ -429,7 +440,7 @@ impl<D: Diagnostic> Lexer<D> {
                 break;
             }
             if cur != b'\\' {
-                try!(res.try_push(cur));
+                try!(res.push(cur));
                 continue;
             }
             let (pos, cur) = match self.chars.next() {
@@ -442,12 +453,12 @@ impl<D: Diagnostic> Lexer<D> {
                 }
             };
             let res = match cur {
-                b'\\' => res.try_push(b'\\'),
-                b'"' => res.try_push(b'"'),
-                b'n' => res.try_push(b'\n'),
-                b't' => res.try_push(b'\t'),
+                b'\\' => res.push(b'\\'),
+                b'"' => res.push(b'"'),
+                b'n' => res.push(b'\n'),
+                b't' => res.push(b'\t'),
                 b'u' => {
-                    try!(self.next_left_brace());
+                    let _ = try!(self.next_left_brace());
                     let before = self.pos();
                     let (val, len) = try!(HexU32::parse_bytes_init(self.chars.text()));
                     if len == 0 {
@@ -455,9 +466,9 @@ impl<D: Diagnostic> Lexer<D> {
                                               Error::FoundString("codepoint", "?"));
                         return Err(error::InvalidSequence);
                     }
-                    for _ in 0..len { self.chars.next(); }
+                    self.chars.skip(len);
                     let after = self.pos();
-                    try!(self.next_right_brace());
+                    let _ = try!(self.next_right_brace());
                     let chr = match char::from_u32(val.0) {
                         Some(c) => c,
                         _ => {

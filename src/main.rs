@@ -434,7 +434,7 @@ fn parse_args() -> Args {
                    Some(p) => p,
                    _ => errexit!("missing argument `--cfg`"),
                };
-               cfgs.push(param)
+               cfgs.push(param);
             },
             b"makefile" => makefile = true,
             _ => errexit!("invalid argument: {:?}", arg),

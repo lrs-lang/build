@@ -65,18 +65,24 @@ impl<D: Diagnostic> Parser<D> {
             loop {
                 let cur = try!(self.lexer.peek(0));
                 if match cur.val {
-                    Token::Not => { stack.push_op(Op::Not(cur.span.lo)); true },
-                    Token::Minus => { stack.push_op(Op::UnMin(cur.span.lo)); true },
+                    Token::Not => {
+                        try!(stack.push_op(Op::Not(cur.span.lo)));
+                        true
+                    },
+                    Token::Minus => {
+                        try!(stack.push_op(Op::UnMin(cur.span.lo)));
+                        true
+                    },
                     _ => false,
                 } {
-                    self.lexer.next();
+                    self.lexer.skip(1);
                 } else {
                     break;
                 }
             }
 
             // Step 2: Read an atomic expression.
-            stack.push_expr(try!(self.parse_atomic()));
+            try!(stack.push_expr(try!(self.parse_atomic())));
 
             // Step 3: Read an operator.
             //
@@ -113,7 +119,7 @@ impl<D: Diagnostic> Parser<D> {
                 if op != Op::Apl {
                     // Apl is not a token.
 
-                    self.lexer.next();
+                    self.lexer.skip(1);
                 }
 
                 if op == Op::Test {
@@ -128,7 +134,7 @@ impl<D: Diagnostic> Parser<D> {
                     let path = try!(self.parse_attr_path());
                     let span = Span::new(expr.span.lo, path.span.hi);
                     let expr = try!(Expr::spanned(span, Expr_::Test(expr, path)));
-                    stack.push_expr(expr);
+                    try!(stack.push_expr(expr));
                 } else if op == Op::Select {
                     // Select has the form
                     //
@@ -156,9 +162,9 @@ impl<D: Diagnostic> Parser<D> {
                     let span = Span::new(expr.span.lo, hi);
                     let expr = Expr_::Select(expr, path, alt);
                     let expr = try!(Expr::spanned(span, expr));
-                    stack.push_expr(expr);
+                    try!(stack.push_expr(expr));
                 } else {
-                    stack.push_op(op);
+                    try!(stack.push_op(op));
                     break;
                 }
             }

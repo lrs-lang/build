@@ -54,16 +54,20 @@ impl<T: To> Scope<T> {
     /// values.
     pub fn bind(&mut self, name: Interned, val: T) -> Result {
         match try!(self.names.entry(&name)) {
-            Entry::Occupied(mut o) => o.push(Some(val)),
-            Entry::Vacant(v) => { v.set(name, vec!(Some(val))); },
+            Entry::Occupied(mut o) => try!(o.push(Some(val))),
+            Entry::Vacant(v) => {
+                let _ = v.set(name, vec!(Some(val)));
+            },
         }
         Ok(())
     }
 
     pub fn hide(&mut self, name: Interned) -> Result {
         match try!(self.names.entry(&name)) {
-            Entry::Occupied(mut o) => o.push(None),
-            Entry::Vacant(v) => { v.set(name, vec!(None)); },
+            Entry::Occupied(mut o) => try!(o.push(None)),
+            Entry::Vacant(v) => {
+                let _ = v.set(name, vec!(None));
+            },
         }
         Ok(())
     }
@@ -72,9 +76,9 @@ impl<T: To> Scope<T> {
     pub fn pop(&mut self, name: Interned) {
         match self.names.entry(&name).unwrap() {
             Entry::Occupied(mut o) => {
-                o.pop().unwrap();
+                let _ = o.pop().unwrap();
                 if o.len() == 0 {
-                    o.remove();
+                    let _ = o.remove();
                 }
             },
             _ => abort!(),

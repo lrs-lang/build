@@ -37,7 +37,7 @@ impl Codemap {
         };
         let mut cur_pos = old_pos;
         let mut lines = Vec::new();
-        lines.push(cur_pos);
+        lines.push(cur_pos).unwrap();
         {
             let mut src = &**src;
             while src.len() > 0 {
@@ -47,7 +47,7 @@ impl Codemap {
                 };
                 cur_pos += pos as u32;
                 src = &src[pos..];
-                lines.push(cur_pos);
+                lines.push(cur_pos).unwrap();
             }
         }
         let map = Filemap {
@@ -55,7 +55,7 @@ impl Codemap {
             src: src,
             lines: lines,
         };
-        self.files.push(map);
+        self.files.push(map).unwrap();
         old_pos
     }
 
